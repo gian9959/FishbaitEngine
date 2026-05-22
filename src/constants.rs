@@ -1,4 +1,4 @@
-use shakmaty::{Role, Color, Square};
+use shakmaty::{Role, Color, Square, Move};
 
 pub const PAWN_TABLE_WHITE: [i32; 64] = [
     0,  0,  0,  0,  0,  0,  0,  0,
@@ -109,6 +109,17 @@ pub fn piece_square_value(role: Role, color: Color, square: Square) -> i32 {
         (Role::Queen,  _)            => QUEEN_TABLE[idx],
         (Role::King,   Color::White) => KING_TABLE_WHITE[idx],
         (Role::King,   Color::Black) => KING_TABLE_BLACK[idx],
+    }
+}
+
+pub fn move_score(mv: &Move) -> i32 {
+    match mv {
+        Move::Normal { capture: Some(victim), role, .. } => {
+            piece_value(*victim) * 10 - piece_value(*role)
+        },
+        Move::Castle { .. } => 20,
+        Move::EnPassant { .. } => 10,
+        _ => 0,
     }
 }
 

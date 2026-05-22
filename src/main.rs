@@ -1,8 +1,10 @@
-use shakmaty::{Color, Position, Square, Role, File, Rank, Chess};
+use std::time::{Duration, Instant};
+use shakmaty::{Color, Position, Square, Role, File, Rank, Chess, Outcome};
 use crate::rusty_engine::{Game, State};
 
 mod rusty_engine;
 mod constants;
+mod transition_table;
 
 fn print_board(board: &Chess) {
     let b = board.board();
@@ -37,30 +39,58 @@ fn print_board(board: &Chess) {
     println!("  a b c d e f g h");
 }
 
-fn turn(c: Color, g: &mut Game, d: i32) -> bool {
-    println!("{}'s turn", c);
+fn turn(game: &mut Game, state: &mut State, tot_time: &mut Duration) -> bool {
+    match game.current().outcome() {
+        Outcome::Known(result) => { println!("GAME OVER: {}", result); return false; },
+        Outcome::Unknown => {   if game.is_threefold_repetition() {
+                                    println!("GAME OVER: 0-0 by repetition");
+                                    return false;
+                                } else if game.maxed_moves() {
+                                    println!("GAME OVER: 0-0 by move limit");
+                                    return false;
+                                }
+                            }
+    }
+
+    state.set_game(game.clone());
+
+    println!("{}'s turn", state.get_color());
     println!("Thinking...");
+    let start_time = Instant::now();
 
-    let mut s = State::new(g.clone(), c, d);
+    let m = match state.play() { None => {println!("NONE MOVE"); return false}, Some(x) => x };
+    if game.push(m).is_err() { println!("PLAY ERROR"); return false };
 
-    let m = match s.play() { None => {println!("NONE MOVE"); return false}, Some(x) => x };
-    if g.push(m).is_err() { println!("PLAY ERROR"); return false };
+    let delta_time = start_time.elapsed();
+    *tot_time += delta_time;
 
     println!("{}", m);
-    print_board(g.current());
+    print_board(game.current());
 
-    if(g.current().is_game_over()) { println!("GAME OVER"); return false };
+    println!("Turn time: {}s", delta_time.as_secs());
+    println!();
+
     true
 }
 
 fn main() {
     let mut game = Game::new();
+    let mut avg_time = Duration::new(0, 0);
+
+    let mut w_state = State::new(game.clone(), Color::White, 8);
+    let mut b_state = State::new(game.clone(), Color::Black, 8);
 
     println!("Starting test game!");
     println!("Playing against myself");
     loop {
-        if !turn(Color::White, &mut game, 4) { break }
-        if !turn(Color::Black, &mut game, 5) { break }
+        if !turn(&mut game, &mut w_state, &mut avg_time) { break }
+        if !turn(&mut game, &mut b_state, &mut avg_time) { break }
     }
     println!("END");
+    println!();
+    println!("Average turn time: {}s", avg_time.as_secs()/game.len() as u64);
+    println!("Average white iterations -> normal: {}, memo: {}", w_state.get_stats().0/game.len() as i32, w_state.get_stats().1/game.len() as i32);
+    println!("Average black iterations -> normal: {}, memo: {}", b_state.get_stats().0/game.len() as i32, b_state.get_stats().1/game.len() as i32);
+    println!("Average white best moves found: {}", w_state.get_stats().2/game.len() as i32);
+    println!("Average black best moves found: {}", b_state.get_stats().2/game.len() as i32);
 }
