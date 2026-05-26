@@ -82,6 +82,7 @@ fn main() {
 
     println!("Starting test game!");
     println!("Playing against myself");
+    println!();
     loop {
         if !turn(&mut game, &mut w_state, &mut avg_time) { break }
         if !turn(&mut game, &mut b_state, &mut avg_time) { break }
@@ -89,8 +90,11 @@ fn main() {
     println!("END");
     println!();
     println!("Average turn time: {}s", avg_time.as_secs()/game.len() as u64);
-    println!("Average white iterations -> normal: {}, memo: {}", w_state.get_stats().0/game.len() as i32, w_state.get_stats().1/game.len() as i32);
-    println!("Average black iterations -> normal: {}, memo: {}", b_state.get_stats().0/game.len() as i32, b_state.get_stats().1/game.len() as i32);
-    println!("Average white best moves found: {}", w_state.get_stats().2/game.len() as i32);
-    println!("Average black best moves found: {}", b_state.get_stats().2/game.len() as i32);
+
+    let w_stats = w_state.get_stats();
+    let b_stats = b_state.get_stats();
+    println!("Average white iterations -> normal: {}, memo: {}", w_stats.0/game.len() as i32, w_stats.1/game.len() as i32);
+    println!("White transitions table length: {}", w_stats.2);
+    println!("Average black iterations -> normal: {}, memo: {}", b_stats.0/game.len() as i32, b_stats.1/game.len() as i32);
+    println!("Black transitions table length: {}", b_stats.2);
 }

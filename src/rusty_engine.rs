@@ -2,6 +2,8 @@ use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassan
 use crate::constants::{piece_value, piece_square_value, move_score};
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
+const TABLE_SIZE: usize = 5_000_000;
+
 #[derive(Clone)]
 pub struct Game {
     history: Vec<Chess>,
@@ -69,7 +71,6 @@ pub struct State {
     // stats
     iterations: i32,
     memo_iterations: i32,
-    best_move_found: i32,
 }
 
 impl State {
@@ -79,11 +80,10 @@ impl State {
             best_move: None,
             color: c,
             max_depth: d,
-            hash_table: TranspositionTable::new(10000000),
+            hash_table: TranspositionTable::new(TABLE_SIZE),
 
             iterations: 0,
             memo_iterations: 0,
-            best_move_found: 0,
         }
     }
 
@@ -97,7 +97,7 @@ impl State {
     }
 
     pub fn get_stats(&self) -> (i32, i32, i32) {
-        (self.iterations, self.memo_iterations, self.best_move_found)
+        (self.iterations, self.memo_iterations, self.hash_table.get_len())
     }
 
     // with iterative deepening
@@ -114,7 +114,6 @@ impl State {
         let mut moves = moves;
         moves.sort_by_key(|m| {
             if Some(m) == local_best.as_ref() {
-                self.best_move_found += 1;
                 return i32::MIN;
             }
             -move_score(m)
@@ -194,10 +193,25 @@ impl State {
         let original_alpha = alpha;
         let original_beta = beta;
 
-        for m in moves {
+        for (i, m) in moves.iter().enumerate() {
             // push move and explore down the tree
-            if self.game.push(m).is_err() { continue; }
-            let score = self.minimax(depth - 1, alpha, beta, !is_max);
+            if self.game.push(*m).is_err() { continue; }
+
+            // Late Move Reduction (LMR)
+            let score = if i>=3 && depth>=3 && !self.game.current().is_check() {
+                let red_score = self.minimax(depth-2, alpha, beta, !is_max);
+                if red_score > alpha {
+                    // move is promising despite being late in the order, full search
+                    // (nodes already explored are in trans. table)
+                    self.minimax(depth-1, alpha, beta, !is_max)
+                } else {
+                    red_score
+                }
+            } else {
+                // normal search
+                self.minimax(depth-1, alpha, beta, !is_max)
+            };
+
             // pop move to go up the tre
             self.game.pop();
 
@@ -207,7 +221,7 @@ impl State {
                 if depth == self.max_depth || self.best_move.is_none() {
                     self.best_move = Some(m.clone());
                 }
-                local_best_move = Some(m);
+                local_best_move = Some(*m);
             }
 
             if is_max {
