@@ -64,9 +64,11 @@ impl Game {
 pub struct State {
     game: Game,
     best_move: Option<Move>,
+    best_score: i32,
     color: Color,
     max_depth: i32,
     hash_table: TranspositionTable,
+    killer_moves: Vec<[Option<Move>; 2]>,
 
     // stats
     iterations: i32,
@@ -78,9 +80,11 @@ impl State {
         State {
             game: g,
             best_move: None,
+            best_score: 0,
             color: c,
             max_depth: d,
             hash_table: TranspositionTable::new(TABLE_SIZE),
+            killer_moves: vec![[None, None]; d as usize + 1],
 
             iterations: 0,
             memo_iterations: 0,
@@ -90,10 +94,16 @@ impl State {
     pub fn set_game(&mut self, game: Game) {
         self.game = game;
         self.best_move = None;
+        self.best_score = 0;
+        self.killer_moves = vec![[None, None]; self.max_depth as usize + 1];
     }
 
     pub fn get_color(&self) -> Color {
         self.color
+    }
+
+    pub fn get_best_score(&self) -> i32 {
+        self.best_score
     }
 
     pub fn get_stats(&self) -> (i32, i32, i32) {
@@ -102,19 +112,24 @@ impl State {
 
     // with iterative deepening
     pub fn play(&mut self) -> Option<Move> {
-        let mut score = 0;
         for depth in 1..=self.max_depth {
-            score = self.minimax(depth, i32::MIN, i32::MAX, true);
+            self.killer_moves = vec![[None, None]; self.max_depth as usize + 1];
+            self.best_score = self.minimax(depth, i32::MIN, i32::MAX, true);
         }
-        println!("Best score: {}", score);
         self.best_move
     }
 
-    fn order_moves(&mut self, moves: MoveList, local_best: Option<Move>) -> MoveList {
+    fn order_moves(&mut self, moves: MoveList, h_move: Option<Move>, killers: &[Option<Move>; 2]) -> MoveList {
         let mut moves = moves;
         moves.sort_by_key(|m| {
-            if Some(m) == local_best.as_ref() {
+            if Some(m) == h_move.as_ref() {
                 return i32::MIN;
+            }
+            if Some(m) == killers[0].as_ref() {
+                return i32::MIN + 2;
+            }
+            if Some(m) == killers[1].as_ref() {
+                return i32::MIN + 3;
             }
             -move_score(m)
         });
@@ -177,7 +192,8 @@ impl State {
         }
 
         let moves = self.game.current().legal_moves();
-        let moves = self.order_moves(moves, h_move);
+        let killers = &self.killer_moves[depth as usize].clone();
+        let moves = self.order_moves(moves, h_move, killers);
 
         // end condition by no other moves
         if moves.is_empty() {
@@ -227,7 +243,17 @@ impl State {
             if is_max {
                 best_score = i32::max(best_score, score);
                 alpha = i32::max(alpha, best_score);
-                if best_score >= beta { break; }
+                if best_score >= beta {
+                    //save killer move
+                    if !m.is_capture() {
+                        let depth_idx = depth as usize;
+                        if self.killer_moves[depth_idx][0] != Some(m.clone()) {
+                            self.killer_moves[depth_idx][1] = self.killer_moves[depth_idx][0].clone();
+                            self.killer_moves[depth_idx][0] = Some(m.clone());
+                        }
+                    }
+                    break;
+                }
             } else {
                 best_score = i32::min(best_score, score);
                 beta = i32::min(beta, best_score);

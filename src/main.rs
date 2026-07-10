@@ -67,6 +67,8 @@ fn turn(game: &mut Game, state: &mut State, tot_time: &mut Duration) -> bool {
     println!("{}", m);
     print_board(game.current());
 
+    println!("Best score predicted: {}", state.get_best_score());
+
     println!("Turn time: {}s", delta_time.as_secs());
     println!();
 
