@@ -68,6 +68,8 @@ pub struct State {
     color: Color,
     max_depth: i32,
     hash_table: TranspositionTable,
+    silent_history: [[i32; 64]; 64],
+    quiescence: bool,
 
     // stats
     iterations: i32,
@@ -75,7 +77,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(g: Game, c: Color, d: i32) -> Self {
+    pub fn new(g: Game, c: Color, d: i32, q: bool) -> Self {
         State {
             game: g,
             best_move: None,
@@ -83,6 +85,8 @@ impl State {
             color: c,
             max_depth: d,
             hash_table: TranspositionTable::new(TABLE_SIZE),
+            silent_history: [[0; 64]; 64],
+            quiescence: q,
 
             iterations: 0,
             memo_iterations: 0,
@@ -93,6 +97,7 @@ impl State {
         self.game = game;
         self.best_move = None;
         self.best_score = 0;
+        self.silent_history = [[0; 64]; 64];
     }
 
     pub fn get_color(&self) -> Color {
@@ -121,7 +126,12 @@ impl State {
             if Some(m) == h_move.as_ref() {
                 return i32::MIN;
             }
-            -move_score(m)
+            if m.is_capture() {
+                return -move_score(m);
+            }
+            let from = m.from().unwrap() as usize;
+            let to = m.to() as usize;
+            -self.silent_history[from][to]
         });
         moves
     }
@@ -144,6 +154,55 @@ impl State {
             }
         }
         score
+    }
+
+    fn quiescence_search(&mut self, mut alpha: i32, mut beta: i32, is_max: bool) -> i32 {
+        // draw by maxed moves
+        if self.game.maxed_moves() {
+            return 0;
+        }
+
+        let moves = self.game.current().legal_moves();
+
+        // check if game ended
+        if moves.is_empty() {
+            return if self.game.current().is_checkmate() {
+                if is_max { i32::MIN } else { i32::MAX }
+            } else {
+                0
+            };
+        }
+
+        // score of position with no capture
+        let no_capt =self.eval();
+        if is_max {
+            if no_capt >= beta { return beta; }
+            alpha = alpha.max(no_capt);
+        } else {
+            if no_capt <= alpha { return alpha; }
+            beta = beta.min(no_capt);
+        }
+
+        // explore only capture moves
+        let captures: Vec<Move> = moves.into_iter()
+            .filter(|m| m.is_capture())
+            .collect();
+
+        for m in captures {
+            if self.game.push(m).is_err() { continue; }
+            let score = self.quiescence_search(alpha, beta, !is_max);
+            self.game.pop();
+
+            if is_max {
+                alpha = alpha.max(score);
+                if alpha >= beta { return beta; }
+            } else {
+                beta = beta.min(score);
+                if beta <= alpha { return alpha; }
+            }
+        }
+
+        if is_max { alpha } else { beta }
     }
 
     pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32, is_max: bool) -> i32 {
@@ -173,7 +232,11 @@ impl State {
 
         // max depth reached
         if depth == 0 {
-            return self.eval();
+            return if self.quiescence {
+                self.quiescence_search(alpha, beta, is_max)
+            } else {
+                self.eval()
+            }
         }
 
         // draw by a special case
@@ -181,8 +244,8 @@ impl State {
             return 0;
         }
 
-        let moves = self.game.current().legal_moves();
-        let moves = self.order_moves(moves, h_move);
+        let mut moves = self.game.current().legal_moves();
+        moves = self.order_moves(moves, h_move);
 
         // end condition by no other moves
         if moves.is_empty() {
@@ -203,11 +266,11 @@ impl State {
             if self.game.push(*m).is_err() { continue; }
 
             // Late Move Reduction (LMR)
-            let score = if i>=3 && depth>=3 && !self.game.current().is_check() {
-                let red_score = self.minimax(depth-2, alpha, beta, !is_max);
+            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() {
+                let r_depth = if i >= 5 { 3 } else { 2 };
+                let red_score = self.minimax(depth - r_depth, alpha, beta, !is_max);
                 if red_score > alpha {
                     // move is promising despite being late in the order, full search
-                    // (nodes already explored are in trans. table)
                     self.minimax(depth-1, alpha, beta, !is_max)
                 } else {
                     red_score
@@ -232,7 +295,15 @@ impl State {
             if is_max {
                 best_score = i32::max(best_score, score);
                 alpha = i32::max(alpha, best_score);
-                if best_score >= beta { break; }
+                if best_score >= beta {
+                    if !m.is_capture() && !self.game.current().is_check() {
+                        // save "silent" move in history
+                        let from = m.from().unwrap() as usize;
+                        let to = m.to() as usize;
+                        self.silent_history[from][to] += depth * depth;
+                    }
+                    break;
+                }
             } else {
                 best_score = i32::min(best_score, score);
                 beta = i32::min(beta, best_score);
