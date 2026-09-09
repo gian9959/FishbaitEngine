@@ -68,16 +68,17 @@ pub struct State {
     color: Color,
     max_depth: i32,
     hash_table: TranspositionTable,
+    q_hash_table: TranspositionTable,
     silent_history: [[i32; 64]; 64],
-    quiescence: bool,
 
     // stats
     iterations: i32,
+    q_iterations: i32,
     memo_iterations: i32,
 }
 
 impl State {
-    pub fn new(g: Game, c: Color, d: i32, q: bool) -> Self {
+    pub fn new(g: Game, c: Color, d: i32) -> Self {
         State {
             game: g,
             best_move: None,
@@ -85,10 +86,11 @@ impl State {
             color: c,
             max_depth: d,
             hash_table: TranspositionTable::new(TABLE_SIZE),
+            q_hash_table: TranspositionTable::new(TABLE_SIZE),
             silent_history: [[0; 64]; 64],
-            quiescence: q,
 
             iterations: 0,
+            q_iterations: 0,
             memo_iterations: 0,
         }
     }
@@ -108,8 +110,8 @@ impl State {
         self.best_score
     }
 
-    pub fn get_stats(&self) -> (i32, i32, i32) {
-        (self.iterations, self.memo_iterations, self.hash_table.get_len())
+    pub fn get_stats(&self) -> (i32, i32, i32, i32, i32) {
+        (self.iterations, self.q_iterations, self.memo_iterations, self.hash_table.get_len(), self.q_hash_table.get_len())
     }
 
     // with iterative deepening
@@ -156,7 +158,28 @@ impl State {
         score
     }
 
-    fn quiescence_search(&mut self, mut alpha: i32, mut beta: i32, is_max: bool) -> i32 {
+    fn quiescence_search(&mut self, depth: i32, mut alpha: i32, mut beta: i32, is_max: bool) -> i32 {
+        let h: Zobrist64 = self.game.current().zobrist_hash(EnPassantMode::Legal);
+        let mut h_move: Option<Move> = None;
+
+        // memoization with Zobrist hashes
+        if let Some(entry) = self.q_hash_table.get(h) {
+            self.memo_iterations += 1;
+            h_move = entry.best_move;
+            if entry.depth <= depth {
+                match entry.entry_type {
+                    EntryType::Exact => return entry.score,
+                    EntryType::LowerBound => alpha = i32::max(alpha, entry.score),
+                    EntryType::UpperBound => beta = i32::min(beta, entry.score),
+                }
+                if alpha >= beta {
+                    return entry.score;
+                }
+            }
+        }
+
+        self.q_iterations += 1;
+
         // draw by maxed moves
         if self.game.maxed_moves() {
             return 0;
@@ -174,35 +197,62 @@ impl State {
         }
 
         // score of position with no capture
-        let no_capt =self.eval();
+        let mut best_score = self.eval();
+        let original_alpha = alpha;
+        let original_beta = beta;
+        let mut local_best_move: Option<Move> = None;
+
         if is_max {
-            if no_capt >= beta { return beta; }
-            alpha = alpha.max(no_capt);
+            if best_score >= beta { return beta; }
+            alpha = alpha.max(best_score);
         } else {
-            if no_capt <= alpha { return alpha; }
-            beta = beta.min(no_capt);
+            if best_score <= alpha { return alpha; }
+            beta = beta.min(best_score);
         }
 
         // explore only capture moves
-        let captures: Vec<Move> = moves.into_iter()
+        let mut captures= moves.into_iter()
             .filter(|m| m.is_capture())
             .collect();
+        captures = self.order_moves(captures, h_move);
 
         for m in captures {
             if self.game.push(m).is_err() { continue; }
-            let score = self.quiescence_search(alpha, beta, !is_max);
+            let score = self.quiescence_search(depth -1, alpha, beta, !is_max);
             self.game.pop();
 
+            let is_better = if is_max { score > best_score } else { score < best_score };
+            if is_better {
+                best_score = score;
+                local_best_move = Some(m);
+            }
+
             if is_max {
-                alpha = alpha.max(score);
-                if alpha >= beta { return beta; }
+                alpha = alpha.max(best_score);
+                if best_score >= beta { break; }
             } else {
-                beta = beta.min(score);
-                if beta <= alpha { return alpha; }
+                beta = beta.min(best_score);
+                if best_score <= alpha { break; }
             }
         }
 
-        if is_max { alpha } else { beta }
+        let et = if best_score <= original_alpha {
+            EntryType::UpperBound
+        } else if best_score >= original_beta {
+            EntryType::LowerBound
+        } else {
+            EntryType::Exact
+        };
+
+        self.q_hash_table.insert(TTEntry {
+            hash: h,
+            depth: depth,
+            score: best_score,
+            entry_type: et,
+            best_move: local_best_move,
+        });
+
+        best_score
     }
 
     pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32, is_max: bool) -> i32 {
@@ -230,18 +280,15 @@ impl State {
 
         self.iterations += 1;
 
-        // max depth reached
-        if depth == 0 {
-            return if self.quiescence {
-                self.quiescence_search(alpha, beta, is_max)
-            } else {
-                self.eval()
-            }
-        }
-
         // draw by a special case
         if self.game.is_threefold_repetition() || self.game.maxed_moves() {
             return 0;
+        }
+
+        // max depth reached
+        // start quiescence search
+        if depth == 0 {
+            return self.quiescence_search(-1, alpha, beta, is_max)
         }
 
         let mut moves = self.game.current().legal_moves();

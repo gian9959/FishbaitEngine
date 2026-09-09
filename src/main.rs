@@ -79,8 +79,8 @@ fn main() {
     let mut game = Game::new();
     let mut avg_time = Duration::new(0, 0);
 
-    let mut w_state = State::new(game.clone(), Color::White, 8, false);
-    let mut b_state = State::new(game.clone(), Color::Black, 7, true);
+    let mut w_state = State::new(game.clone(), Color::White, 8);
+    let mut b_state = State::new(game.clone(), Color::Black, 7);
 
     println!("Starting test game!");
     println!("Playing against myself");
@@ -95,8 +95,8 @@ fn main() {
 
     let w_stats = w_state.get_stats();
     let b_stats = b_state.get_stats();
-    println!("Average white iterations -> normal: {}, memo: {}", w_stats.0/game.len() as i32, w_stats.1/game.len() as i32);
-    println!("White transitions table length: {}", w_stats.2);
-    println!("Average black iterations -> normal: {}, memo: {}", b_stats.0/game.len() as i32, b_stats.1/game.len() as i32);
-    println!("Black transitions table length: {}", b_stats.2);
+    println!("Average white iterations -> normal: {}, quiescence: {}, memo: {}", w_stats.0/game.len() as i32, w_stats.1/game.len() as i32, w_stats.2/game.len() as i32);
+    println!("White transitions table length -> normal: {}, quiescence: {}", w_stats.3, w_stats.4);
+    println!("Average black iterations -> normal: {}, quiescence: {}, memo: {}", b_stats.0/game.len() as i32, b_stats.1/game.len() as i32, b_stats.2/game.len() as i32);
+    println!("Black transitions table length -> normal: {}, quiescence: {}", b_stats.3, b_stats.4);
 }
