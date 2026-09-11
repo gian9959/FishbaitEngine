@@ -94,10 +94,7 @@ pub const fn piece_value(role: Role) -> i32 {
 }
 
 pub fn piece_square_value(role: Role, color: Color, square: Square) -> i32 {
-    let idx = match color {
-        Color::White => square as usize,
-        Color::Black => square as usize ^ 56,
-    };
+    let idx = square as usize;
     match (role, color) {
         (Role::Pawn,   Color::White) => PAWN_TABLE_WHITE[idx],
         (Role::Pawn,   Color::Black) => PAWN_TABLE_BLACK[idx],
@@ -124,7 +121,7 @@ pub fn move_score(mv: &Move) -> i32 {
 }
 
 pub const fn reverse(table: [i32; 64]) -> [i32; 64] {
-    let mut result = [0i32; 64];
+    let mut result = [0; 64];
     let mut i = 0;
     while i < 64 {
         result[i] = table[63 - i];

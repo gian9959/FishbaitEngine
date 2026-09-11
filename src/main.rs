@@ -79,8 +79,8 @@ fn main() {
     let mut game = Game::new();
     let mut avg_time = Duration::new(0, 0);
 
-    let mut w_state = State::new(game.clone(), Color::White, 8);
-    let mut b_state = State::new(game.clone(), Color::Black, 7);
+    let mut w_state = State::new(game.clone(), Color::White, 3);
+    let mut b_state = State::new(game.clone(), Color::Black, 8);
 
     println!("Starting test game!");
     println!("Playing against myself");

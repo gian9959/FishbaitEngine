@@ -97,6 +97,9 @@ impl State {
 
     pub fn set_game(&mut self, game: Game) {
         self.game = game;
+        if self.game.current().turn() != self.color {
+            panic!("Turn of game does not match color!");
+        }
         self.best_move = None;
         self.best_score = 0;
         self.silent_history = [[0; 64]; 64];
@@ -114,10 +117,10 @@ impl State {
         (self.iterations, self.q_iterations, self.memo_iterations, self.hash_table.get_len(), self.q_hash_table.get_len())
     }
 
-    // with iterative deepening
     pub fn play(&mut self) -> Option<Move> {
+        // with iterative deepening
         for depth in 1..=self.max_depth {
-            self.best_score = self.minimax(depth, i32::MIN, i32::MAX, true);
+            self.best_score = self.minimax(depth, i32::MIN, i32::MAX);
         }
         self.best_move
     }
@@ -158,7 +161,10 @@ impl State {
         score
     }
 
-    fn quiescence_search(&mut self, depth: i32, mut alpha: i32, mut beta: i32, is_max: bool) -> i32 {
+    fn quiescence_search(&mut self, depth: i32, mut alpha: i32, mut beta: i32) -> i32 {
+
+        let is_max = self.game.current().turn() == self.color;
+
         let h: Zobrist64 = self.game.current().zobrist_hash(EnPassantMode::Legal);
         let mut h_move: Option<Move> = None;
 
@@ -166,7 +172,7 @@ impl State {
         if let Some(entry) = self.q_hash_table.get(h) {
             self.memo_iterations += 1;
             h_move = entry.best_move;
-            if entry.depth <= depth {
+            if entry.depth >= depth {
                 match entry.entry_type {
                     EntryType::Exact => return entry.score,
                     EntryType::LowerBound => alpha = i32::max(alpha, entry.score),
@@ -180,8 +186,8 @@ impl State {
 
         self.q_iterations += 1;
 
-        // draw by maxed moves
-        if self.game.maxed_moves() {
+        // draw by special case
+        if self.game.maxed_moves() || self.game.is_threefold_repetition() {
             return 0;
         }
 
@@ -196,29 +202,32 @@ impl State {
             };
         }
 
-        // score of position with no capture
         let mut best_score = self.eval();
+        let mut active_moves = moves;
+
+        // score of position with no capture if not in check
+        if !self.game.current().is_check(){
+            if is_max {
+                if best_score >= beta { return beta; }
+                alpha = alpha.max(best_score);
+            } else {
+                if best_score <= alpha { return alpha; }
+                beta = beta.min(best_score);
+            }
+            // if not in check explore only capture moves
+            active_moves= active_moves.into_iter()
+                .filter(|m| m.is_capture())
+                .collect();
+            active_moves = self.order_moves(active_moves, h_move);
+        }
+
         let original_alpha = alpha;
         let original_beta = beta;
         let mut local_best_move: Option<Move> = None;
 
-        if is_max {
-            if best_score >= beta { return beta; }
-            alpha = alpha.max(best_score);
-        } else {
-            if best_score <= alpha { return alpha; }
-            beta = beta.min(best_score);
-        }
-
-        // explore only capture moves
-        let mut captures= moves.into_iter()
-            .filter(|m| m.is_capture())
-            .collect();
-        captures = self.order_moves(captures, h_move);
-
-        for m in captures {
+        for m in active_moves {
             if self.game.push(m).is_err() { continue; }
-            let score = self.quiescence_search(depth -1, alpha, beta, !is_max);
+            let score = self.quiescence_search(depth - 1, alpha, beta);
             self.game.pop();
 
             let is_better = if is_max { score > best_score } else { score < best_score };
@@ -255,7 +264,10 @@ impl State {
         best_score
     }
 
-    pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32, is_max: bool) -> i32 {
+    pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32) -> i32 {
+
+        let is_max = self.game.current().turn() == self.color;
+
         let h: Zobrist64 = self.game.current().zobrist_hash(EnPassantMode::Legal);
         let mut h_move: Option<Move> = None;
 
@@ -281,18 +293,17 @@ impl State {
         self.iterations += 1;
 
         // draw by a special case
-        if self.game.is_threefold_repetition() || self.game.maxed_moves() {
+        if self.game.maxed_moves() || self.game.is_threefold_repetition() {
             return 0;
         }
 
         // max depth reached
         // start quiescence search
         if depth == 0 {
-            return self.quiescence_search(-1, alpha, beta, is_max)
+            return self.quiescence_search(-1, alpha, beta)
         }
 
         let mut moves = self.game.current().legal_moves();
-        moves = self.order_moves(moves, h_move);
 
         // end condition by no other moves
         if moves.is_empty() {
@@ -302,6 +313,8 @@ impl State {
                 0
             }
         }
+
+        moves = self.order_moves(moves, h_move);
 
         let mut best_score = if is_max { i32::MIN } else { i32::MAX };
         let mut local_best_move: Option<Move> = None;
@@ -315,16 +328,16 @@ impl State {
             // Late Move Reduction (LMR)
             let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() {
                 let r_depth = if i >= 5 { 3 } else { 2 };
-                let red_score = self.minimax(depth - r_depth, alpha, beta, !is_max);
+                let red_score = self.minimax(depth - r_depth, alpha, beta);
                 if red_score > alpha {
                     // move is promising despite being late in the order, full search
-                    self.minimax(depth-1, alpha, beta, !is_max)
+                    self.minimax(depth-1, alpha, beta)
                 } else {
                     red_score
                 }
             } else {
                 // normal search
-                self.minimax(depth-1, alpha, beta, !is_max)
+                self.minimax(depth-1, alpha, beta)
             };
 
             // pop move to go up the tre
