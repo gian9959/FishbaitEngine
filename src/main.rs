@@ -51,7 +51,11 @@ fn main() {
             UciMessage::Go { .. } => {
                 if let Some(ref mut e) = fishbait {
                     if let Some(result) = e.search() {
-                        println!("bestmove {}", result.best_move);
+                        let uci_move = shakmaty::uci::UciMove::from_move(
+                            result.best_move,
+                            shakmaty::CastlingMode::Standard
+                        );
+                        println!("bestmove {}", uci_move);
                         io::stdout().flush().unwrap();
                     }
                 }
