@@ -25,8 +25,8 @@ fn main() {
                 io::stdout().flush().unwrap();
             }
             UciMessage::Position { startpos, fen, moves } => {
-                if fishbait.is_none() {
-                    // prima volta — crea l'engine
+                if fishbait.is_none() || startpos {
+                    // create new engine
                     let color = if moves.len() % 2 == 0 {
                         Color::White
                     } else {
