@@ -3,5 +3,14 @@ name = "RustyChessEngine"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "rusty_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "RustyChessEngine"
+path = "src/main.rs"
+
 [dependencies]
 shakmaty = "0.30.0"
+vampirc-uci = "0.11.1"

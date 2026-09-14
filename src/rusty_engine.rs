@@ -61,8 +61,8 @@ impl Game {
     }
 }
 
-pub struct State {
-    game: Game,
+pub struct Engine {
+    pub game: Game,
     best_move: Option<Move>,
     best_score: i32,
     color: Color,
@@ -77,9 +77,9 @@ pub struct State {
     memo_iterations: i32,
 }
 
-impl State {
+impl Engine {
     pub fn new(g: Game, c: Color, d: i32) -> Self {
-        State {
+        Engine {
             game: g,
             best_move: None,
             best_score: 0,
@@ -103,6 +103,10 @@ impl State {
         self.best_move = None;
         self.best_score = 0;
         self.silent_history = [[0; 64]; 64];
+    }
+
+    pub fn set_color(&mut self, color: Color) {
+        self.color = color;
     }
 
     pub fn get_color(&self) -> Color {
