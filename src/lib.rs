@@ -1,4 +1,4 @@
-mod rusty_engine;
+mod engine;
 mod transition_table;
 mod constants;
 
@@ -6,7 +6,7 @@ use std::error::Error;
 use shakmaty::{Color, Move, Position, MoveList, Chess, PlayError};
 use shakmaty::{fen::Fen, CastlingMode};
 use shakmaty::uci::UciMove;
-use rusty_engine::{Game, Engine};
+use engine::{Game, Engine};
 
 pub struct SearchResult {
     pub best_move: Move,

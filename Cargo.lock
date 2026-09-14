@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "RustyChessEngine"
+name = "FishbaitEngine"
 version = "0.1.0"
 dependencies = [
  "shakmaty",

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 use shakmaty::{Color, Position, Square, Role, File, Rank, Chess, Outcome};
-use crate::rusty_engine::{Game, Engine};
+use crate::engine::{Game, Engine};
 
 #[cfg(test)]
 mod tests {

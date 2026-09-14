@@ -1,11 +1,11 @@
-mod rusty_engine;
+mod engine;
 mod transition_table;
 mod constants;
 mod tests;
 use shakmaty::Color;
 use vampirc_uci::{parse_one, UciMessage};
 use std::io::{self, BufRead, Write};
-use ::rusty_engine::Fishbait;
+use ::fishbait_engine::Fishbait;
 
 fn main() {
     let stdin = io::stdin();
