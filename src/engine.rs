@@ -8,6 +8,7 @@ const TABLE_SIZE: usize = 5_000_000;
 pub struct Game {
     history: Vec<Chess>,
     hashes: Vec<Zobrist64>,
+    max_moves: Option<i32>,
 }
 
 impl Game {
@@ -15,6 +16,7 @@ impl Game {
         Game {
             history: vec![Chess::default()],
             hashes: vec![Chess::default().zobrist_hash(EnPassantMode::Legal)],
+            max_moves: None,
         }
     }
 
@@ -23,7 +25,12 @@ impl Game {
         Game {
             history: vec![c],
             hashes: vec![hash],
+            max_moves: None,
         }
+    }
+
+    pub fn set_max_moves(&mut self, max_moves: Option<i32>) {
+        self.max_moves = max_moves;
     }
 
     pub fn current(&self) -> &Chess {
@@ -57,7 +64,11 @@ impl Game {
     }
 
     pub fn maxed_moves(&self) -> bool {
-        self.history.len() > 100
+        match self.max_moves {
+            Some(max_moves) => self.history.len() >= max_moves as usize,
+            None => false,
+        }
+
     }
 }
 

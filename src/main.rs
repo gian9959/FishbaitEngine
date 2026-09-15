@@ -10,6 +10,7 @@ use ::fishbait_engine::Fishbait;
 fn main() {
     let stdin = io::stdin();
     let mut fishbait = None;
+    let depth = 9;
 
     for line in stdin.lock().lines() {
         let msg = parse_one(&line.unwrap());
@@ -33,11 +34,11 @@ fn main() {
                         Color::Black
                     };
                     fishbait = Some(if startpos {
-                        Fishbait::new(color, 8)
+                        Fishbait::new(color, depth)
                     } else if let Some(f) = fen {
                         Fishbait::from_fen(&f.to_string(), color, 8).unwrap()
                     } else {
-                        Fishbait::new(color, 8)
+                        Fishbait::new(color, depth)
                     });
                 }
 
