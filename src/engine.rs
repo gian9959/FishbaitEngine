@@ -68,7 +68,16 @@ impl Game {
             Some(max_moves) => self.history.len() >= max_moves as usize,
             None => false,
         }
+    }
 
+    pub fn is_endgame(&self) -> bool {
+        let board = self.current().board();
+        let mut total = 0;
+        for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen] {
+            let pieces = board.by_role(role).count();
+            total += piece_value(role) * pieces as i32;
+        }
+        total <= 3000
     }
 }
 
@@ -78,6 +87,7 @@ pub struct Engine {
     best_score: i32,
     color: Color,
     max_depth: i32,
+    actual_depth: i32,
     hash_table: TranspositionTable,
     q_hash_table: TranspositionTable,
     silent_history: [[i32; 64]; 64],
@@ -96,6 +106,7 @@ impl Engine {
             best_score: 0,
             color: c,
             max_depth: d,
+            actual_depth: d,
             hash_table: TranspositionTable::new(TABLE_SIZE),
             q_hash_table: TranspositionTable::new(TABLE_SIZE),
             silent_history: [[0; 64]; 64],
@@ -113,7 +124,7 @@ impl Engine {
         }
         self.best_move = None;
         self.best_score = 0;
-        self.silent_history = [[0; 64]; 64];
+        // self.silent_history = [[0; 64]; 64];
     }
 
     pub fn set_color(&mut self, color: Color) {
@@ -133,8 +144,11 @@ impl Engine {
     }
 
     pub fn play(&mut self) -> Option<Move> {
+        // add depth on endgame
+        let bonus_depth = if self.game.is_endgame() {2} else {0};
+        self.actual_depth = self.max_depth + bonus_depth;
         // with iterative deepening
-        for depth in 1..=self.max_depth {
+        for depth in 1..=self.actual_depth {
             self.best_score = self.minimax(depth, i32::MIN, i32::MAX);
         }
         self.best_move
@@ -158,13 +172,14 @@ impl Engine {
 
     fn eval(&self) -> i32 {
         let board = self.game.current().board();
+        let endgame = self.game.is_endgame();
         let mut score = 0;
 
         for color in [Color::White, Color::Black] {
-            for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen] {
+            for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen, Role::King] {
                 let mut pieces = board.by_color(color).intersect(board.by_role(role));
                 while let Some(square) = pieces.pop_front() {
-                    let value = piece_value(role) + piece_square_value(role, color, square);
+                    let value = piece_value(role) + piece_square_value(role, color, square, endgame);
                     if color == self.color {
                         score += value;
                     } else {
@@ -197,7 +212,9 @@ impl Engine {
                     return entry.score;
                 }
             }
+
         }
+
 
         self.q_iterations += 1;
 
@@ -288,10 +305,10 @@ impl Engine {
 
         // memoization with Zobrist hashes
         if let Some(entry) = self.hash_table.get(h) {
-            self.memo_iterations += 1;
             h_move = entry.best_move;
             if entry.depth >= depth {
-                if depth == self.max_depth {
+                self.memo_iterations += 1;
+                if depth == self.actual_depth {
                     self.best_move = h_move;
                 }
                 match entry.entry_type {
@@ -303,6 +320,7 @@ impl Engine {
                     return entry.score;
                 }
             }
+
         }
 
         self.iterations += 1;
@@ -335,13 +353,14 @@ impl Engine {
         let mut local_best_move: Option<Move> = None;
         let original_alpha = alpha;
         let original_beta = beta;
+        let is_endgame = self.game.is_endgame();
 
         for (i, m) in moves.iter().enumerate() {
             // push move and explore down the tree
             if self.game.push(*m).is_err() { continue; }
 
             // Late Move Reduction (LMR)
-            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() {
+            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() && !is_endgame {
                 let r_depth = if i >= 5 { 3 } else { 2 };
                 let red_score = self.minimax(depth - r_depth, alpha, beta);
                 if red_score > alpha {
@@ -361,7 +380,7 @@ impl Engine {
             let is_better = if is_max { score > best_score } else { score < best_score };
             // if it's near the root of the tree (the possible next move) save the best move
             if is_better || local_best_move.is_none() {
-                if depth == self.max_depth || self.best_move.is_none() {
+                if depth == self.actual_depth || self.best_move.is_none() {
                     self.best_move = Some(m.clone());
                 }
                 local_best_move = Some(*m);

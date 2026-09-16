@@ -12,5 +12,5 @@ name = "FishbaitEngine"
 path = "src/main.rs"
 
 [dependencies]
-shakmaty = "0.30.0"
-vampirc-uci = "0.11.1"
+shakmaty = "0.30.1"
+vampirc-uci = "0.11.0"

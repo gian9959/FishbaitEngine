@@ -93,7 +93,7 @@ pub const fn piece_value(role: Role) -> i32 {
     }
 }
 
-pub fn piece_square_value(role: Role, color: Color, square: Square) -> i32 {
+pub fn piece_square_value(role: Role, color: Color, square: Square, endgame: bool) -> i32 {
     let idx = square as usize;
     match (role, color) {
         (Role::Pawn,   Color::White) => PAWN_TABLE_WHITE[idx],
@@ -104,8 +104,8 @@ pub fn piece_square_value(role: Role, color: Color, square: Square) -> i32 {
         (Role::Rook,   Color::White) => ROOK_TABLE_WHITE[idx],
         (Role::Rook,   Color::Black) => ROOK_TABLE_BLACK[idx],
         (Role::Queen,  _)            => QUEEN_TABLE[idx],
-        (Role::King,   Color::White) => KING_TABLE_WHITE[idx],
-        (Role::King,   Color::Black) => KING_TABLE_BLACK[idx],
+        (Role::King,   Color::White) => if endgame { KING_ENDGAME_TABLE_WHITE[idx] } else { KING_TABLE_WHITE[idx] },
+        (Role::King,   Color::Black) => if endgame { KING_ENDGAME_TABLE_BLACK[idx] } else { KING_TABLE_BLACK[idx] },
     }
 }
 
