@@ -147,9 +147,35 @@ impl Engine {
         // add depth on endgame
         let bonus_depth = if self.game.is_endgame() {2} else {0};
         self.actual_depth = self.max_depth + bonus_depth;
+        let mut prev_score = 0;
+
         // with iterative deepening
         for depth in 1..=self.actual_depth {
-            self.best_score = self.minimax(depth, i32::MIN, i32::MAX);
+            let score = if depth <= 2 {
+                // first two iterations have a "full" window
+                self.minimax(depth, i32::MIN, i32::MAX)
+            } else {
+                // use aspiration window on later iterations
+                let mut delta = 50;
+                let mut alpha = prev_score - delta;
+                let mut beta = prev_score + delta;
+
+                loop {
+                    let score = self.minimax(depth, alpha, beta);
+                    if score <= alpha {
+                        alpha -= delta;
+                        delta *= 2;
+                    } else if score >= beta {
+                        beta += delta;
+                        delta *= 2;
+                    } else {
+                        break score;
+                    }
+                }
+            };
+
+            prev_score = score;
+            self.best_score = score;
         }
         self.best_move
     }
@@ -332,7 +358,7 @@ impl Engine {
 
         // max depth reached
         // start quiescence search
-        if depth == 0 {
+        if depth <= 0 {
             return self.quiescence_search(-1, alpha, beta)
         }
 
@@ -360,8 +386,8 @@ impl Engine {
             if self.game.push(*m).is_err() { continue; }
 
             // Late Move Reduction (LMR)
-            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() && !is_endgame {
-                let r_depth = if i >= 5 { 3 } else { 2 };
+            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() {
+                let r_depth = if i >= 5 && !is_endgame { 3 } else { 2 };
                 let red_score = self.minimax(depth - r_depth, alpha, beta);
                 if red_score > alpha {
                     // move is promising despite being late in the order, full search
