@@ -173,6 +173,30 @@ impl Engine {
         self.start_timer.elapsed() >= self.max_time
     }
 
+    fn extract_pv(&self, depth: i32) -> Vec<Move> {
+        let mut pv = Vec::new();
+        let mut game = self.game.clone();
+
+        for _ in 0..depth {
+            let h = game.current().zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
+            if let Some(entry) = self.hash_table.get(h) {
+                if let Some(mv) = entry.best_move {
+                    if game.current().legal_moves().contains(&mv) {
+                        pv.push(mv);
+                        game.push(mv).ok();
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        pv
+    }
+
     pub fn play(&mut self, print: bool) -> SearchResult {
         let mut prev_res: Vec<SearchResult> = vec![];
 
@@ -224,13 +248,18 @@ impl Engine {
             }
 
             if let Some(bm) = self.best_move && print {
-                let uci_move = shakmaty::uci::UciMove::from_move(bm, shakmaty::CastlingMode::Standard);
+                let pv = self.extract_pv(depth);
+                let pv_str = pv.iter()
+                    .map(|m| shakmaty::uci::UciMove::from_move(*m, shakmaty::CastlingMode::Standard).to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
                 println!("info depth {} score cp {} nodes {} time {} pv {}",
                     depth,
                     self.best_score,
                     self.iterations + self.q_iterations,
                     self.start_timer.elapsed().as_millis(),
-                    uci_move
+                    pv_str
                 );
                 io::stdout().flush().unwrap();
             }
