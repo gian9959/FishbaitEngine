@@ -3,15 +3,11 @@ mod transition_table;
 mod constants;
 
 use std::error::Error;
+use std::time::Duration;
 use shakmaty::{Color, Move, Position, MoveList, Chess, PlayError};
 use shakmaty::{fen::Fen, CastlingMode};
 use shakmaty::uci::UciMove;
-use engine::{Game, Engine};
-
-pub struct SearchResult {
-    pub best_move: Move,
-    pub score: i32,
-}
+use engine::{Game, Engine, SearchResult};
 
 pub struct Fishbait {
     engine: Engine,
@@ -19,24 +15,28 @@ pub struct Fishbait {
 
 impl Fishbait {
 
-    pub fn new(color: Color, depth: i32) -> Self {
+    pub fn new(color: Color) -> Self {
         let game = Game::new();
         Fishbait {
-            engine: Engine::new(game.clone(), color, depth),
+            engine: Engine::new(game.clone(), color),
         }
     }
 
-    pub fn from_fen(fen: &str, color: Color, depth: i32) -> Result<Self, Box<dyn Error>> {
+    pub fn from_fen(fen: &str, color: Color) -> Result<Self, Box<dyn Error>> {
         let fen: Fen = fen.parse()?;
         let pos = fen.into_position(CastlingMode::Standard)?;
         let game = Game::from_pos(pos);
         Ok(Fishbait {
-            engine: Engine::new(game.clone(), color, depth),
+            engine: Engine::new(game.clone(), color),
         })
     }
 
     pub fn set_color(&mut self, color: Color) {
         self.engine.set_color(color);
+    }
+
+    pub fn get_color(&self) -> Color {
+        self.engine.get_color()
     }
 
     pub fn move_count(&self) -> usize {
@@ -54,11 +54,9 @@ impl Fishbait {
         Ok(())
     }
 
-    pub fn search(&mut self) -> Option<SearchResult> {
-        self.engine.play().map(|mv| SearchResult {
-            best_move: mv,
-            score: self.engine.get_best_score(),
-        })
+    pub fn search(&mut self, max_time: Duration, print: bool) -> SearchResult {
+        self.engine.set_timer(max_time);
+        self.engine.play(print)
     }
 
     pub fn legal_moves(&self) -> MoveList {

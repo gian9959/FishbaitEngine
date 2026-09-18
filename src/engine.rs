@@ -1,8 +1,11 @@
+use std::io;
+use std::io::Write;
+use std::time::{Duration, Instant};
 use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64};
 use crate::constants::{piece_value, piece_square_value, move_score};
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
-const TABLE_SIZE: usize = 5_000_000;
+const TABLE_SIZE: usize = 7_000_000;
 
 #[derive(Clone)]
 pub struct Game {
@@ -80,14 +83,22 @@ impl Game {
         total <= 3000
     }
 }
+#[derive(Clone)]
+pub struct SearchResult {
+    pub best_move: Move,
+    pub score: i32,
+}
 
 pub struct Engine {
     pub game: Game,
-    best_move: Option<Move>,
-    best_score: i32,
     color: Color,
     max_depth: i32,
-    actual_depth: i32,
+    quiescence_depth: i32,
+    max_time: Duration,
+
+    best_move: Option<Move>,
+    best_score: i32,
+    start_timer: Instant,
     hash_table: TranspositionTable,
     q_hash_table: TranspositionTable,
     silent_history: [[i32; 64]; 64],
@@ -99,14 +110,17 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(g: Game, c: Color, d: i32) -> Self {
+    pub fn new(g: Game, c: Color) -> Self {
         Engine {
             game: g,
+            color: c,
+            max_depth: 20,
+            quiescence_depth: 5,
+            max_time: Duration::from_secs(30),
+
             best_move: None,
             best_score: 0,
-            color: c,
-            max_depth: d,
-            actual_depth: d,
+            start_timer: Instant::now(),
             hash_table: TranspositionTable::new(TABLE_SIZE),
             q_hash_table: TranspositionTable::new(TABLE_SIZE),
             silent_history: [[0; 64]; 64],
@@ -124,11 +138,23 @@ impl Engine {
         }
         self.best_move = None;
         self.best_score = 0;
-        // self.silent_history = [[0; 64]; 64];
+        self.silent_history = [[0; 64]; 64];
     }
 
     pub fn set_color(&mut self, color: Color) {
         self.color = color;
+    }
+
+    pub fn set_max_depth(&mut self, max_depth: i32) {
+        self.max_depth = max_depth;
+    }
+
+    pub fn set_quiescence_depth(&mut self, depth: i32) {
+        self.quiescence_depth = depth;
+    }
+
+    pub fn set_timer(&mut self, max_time: Duration) {
+        self.max_time = max_time;
     }
 
     pub fn get_color(&self) -> Color {
@@ -143,29 +169,40 @@ impl Engine {
         (self.iterations, self.q_iterations, self.memo_iterations, self.hash_table.get_len(), self.q_hash_table.get_len())
     }
 
-    pub fn play(&mut self) -> Option<Move> {
-        // add depth on endgame
-        let bonus_depth = if self.game.is_endgame() {2} else {0};
-        self.actual_depth = self.max_depth + bonus_depth;
-        let mut prev_score = 0;
+    pub fn is_timeout(&self) -> bool {
+        self.start_timer.elapsed() >= self.max_time
+    }
+
+    pub fn play(&mut self, print: bool) -> SearchResult {
+        let mut prev_res: Vec<SearchResult> = vec![];
+
+        // start move timer
+        self.start_timer = Instant::now();
 
         // with iterative deepening
-        for depth in 1..=self.actual_depth {
+        for depth in 1..=self.max_depth {
+
             let score = if depth <= 2 {
                 // first two iterations have a "full" window
                 self.minimax(depth, i32::MIN, i32::MAX)
             } else {
                 // use aspiration window on later iterations
                 let mut delta = 50;
-                let mut alpha = prev_score - delta;
-                let mut beta = prev_score + delta;
+                let mut alpha = prev_res[depth as usize - 2].score - delta;
+                let mut beta = prev_res[depth as usize - 2].score + delta;
 
                 loop {
                     let score = self.minimax(depth, alpha, beta);
-                    if score <= alpha {
+
+                    match score {
+                        None => { return prev_res[depth as usize - 2].clone() }
+                        _ => {}
+                    }
+
+                    if score <= Some(alpha) {
                         alpha -= delta;
                         delta *= 2;
-                    } else if score >= beta {
+                    } else if score >= Some(beta) {
                         beta += delta;
                         delta *= 2;
                     } else {
@@ -174,10 +211,34 @@ impl Engine {
                 }
             };
 
-            prev_score = score;
-            self.best_score = score;
+            self.best_score = score.unwrap();
+
+            prev_res.push(SearchResult {
+                best_move: self.best_move.unwrap(),
+                score: self.best_score,
+            });
+
+            let root_hash = self.game.current().zobrist_hash(EnPassantMode::Legal);
+            if let Some(entry) = self.hash_table.get(root_hash) {
+                self.best_move = entry.best_move;
+            }
+
+            if let Some(bm) = self.best_move && print {
+                let uci_move = shakmaty::uci::UciMove::from_move(bm, shakmaty::CastlingMode::Standard);
+                println!("info depth {} score cp {} nodes {} time {} pv {}",
+                    depth,
+                    self.best_score,
+                    self.iterations + self.q_iterations,
+                    self.start_timer.elapsed().as_millis(),
+                    uci_move
+                );
+                io::stdout().flush().unwrap();
+            }
         }
-        self.best_move
+        SearchResult {
+            best_move: self.best_move.unwrap(),
+            score: self.best_score,
+        }
     }
 
     fn order_moves(&mut self, moves: MoveList, h_move: Option<Move>) -> MoveList {
@@ -217,7 +278,11 @@ impl Engine {
         score
     }
 
-    fn quiescence_search(&mut self, depth: i32, mut alpha: i32, mut beta: i32) -> i32 {
+    fn quiescence_search(&mut self, depth: i32, mut alpha: i32, mut beta: i32) -> Option<i32> {
+
+        if self.is_timeout() {
+            return None;
+        }
 
         let is_max = self.game.current().turn() == self.color;
 
@@ -230,23 +295,22 @@ impl Engine {
             h_move = entry.best_move;
             if entry.depth >= depth {
                 match entry.entry_type {
-                    EntryType::Exact => return entry.score,
+                    EntryType::Exact => return Some(entry.score),
                     EntryType::LowerBound => alpha = i32::max(alpha, entry.score),
                     EntryType::UpperBound => beta = i32::min(beta, entry.score),
                 }
                 if alpha >= beta {
-                    return entry.score;
+                    return Some(entry.score);
                 }
             }
 
         }
 
-
         self.q_iterations += 1;
 
         // draw by special case
         if self.game.maxed_moves() || self.game.is_threefold_repetition() {
-            return 0;
+            return Some(0);
         }
 
         let moves = self.game.current().legal_moves();
@@ -254,9 +318,9 @@ impl Engine {
         // check if game ended
         if moves.is_empty() {
             return if self.game.current().is_checkmate() {
-                if is_max { i32::MIN } else { i32::MAX }
+                if is_max { Some(i32::MIN) } else { Some(i32::MAX) }
             } else {
-                0
+                Some(0)
             };
         }
 
@@ -266,10 +330,10 @@ impl Engine {
         // score of position with no capture if not in check
         if !self.game.current().is_check(){
             if is_max {
-                if best_score >= beta { return beta; }
+                if best_score >= beta { return Some(beta); }
                 alpha = alpha.max(best_score);
             } else {
-                if best_score <= alpha { return alpha; }
+                if best_score <= alpha { return Some(alpha); }
                 beta = beta.min(best_score);
             }
             // if not in check explore only capture moves
@@ -284,13 +348,22 @@ impl Engine {
         let mut local_best_move: Option<Move> = None;
 
         for m in active_moves {
+            if self.is_timeout() { return None }
+
             if self.game.push(m).is_err() { continue; }
+
             let score = self.quiescence_search(depth - 1, alpha, beta);
+
             self.game.pop();
 
-            let is_better = if is_max { score > best_score } else { score < best_score };
+            match score {
+                None => { return None; },
+                _ => {}
+            }
+
+            let is_better = if is_max { score > Some(best_score) } else { score < Some(best_score) };
             if is_better {
-                best_score = score;
+                best_score = score.unwrap();
                 local_best_move = Some(m);
             }
 
@@ -319,10 +392,14 @@ impl Engine {
             best_move: local_best_move,
         });
 
-        best_score
+        Some(best_score)
     }
 
-    pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32) -> i32 {
+    pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32) -> Option<i32> {
+
+        if self.is_timeout() {
+            return None;
+        }
 
         let is_max = self.game.current().turn() == self.color;
 
@@ -334,16 +411,16 @@ impl Engine {
             h_move = entry.best_move;
             if entry.depth >= depth {
                 self.memo_iterations += 1;
-                if depth == self.actual_depth {
+                if depth == self.max_depth {
                     self.best_move = h_move;
                 }
                 match entry.entry_type {
-                    EntryType::Exact => return entry.score,
+                    EntryType::Exact => return Some(entry.score),
                     EntryType::LowerBound => alpha = i32::max(alpha, entry.score),
                     EntryType::UpperBound => beta = i32::min(beta, entry.score),
                 }
                 if alpha >= beta {
-                    return entry.score;
+                    return Some(entry.score);
                 }
             }
 
@@ -353,7 +430,7 @@ impl Engine {
 
         // draw by a special case
         if self.game.maxed_moves() || self.game.is_threefold_repetition() {
-            return 0;
+            return Some(0);
         }
 
         // max depth reached
@@ -367,9 +444,9 @@ impl Engine {
         // end condition by no other moves
         if moves.is_empty() {
             return if self.game.current().is_checkmate() {
-                if is_max { i32::MIN } else { i32::MAX }
+                if is_max { Some(i32::MIN) } else { Some(i32::MAX) }
             } else {
-                0
+                Some(0)
             }
         }
 
@@ -382,14 +459,16 @@ impl Engine {
         let is_endgame = self.game.is_endgame();
 
         for (i, m) in moves.iter().enumerate() {
+            if self.is_timeout() { return None }
+
             // push move and explore down the tree
             if self.game.push(*m).is_err() { continue; }
 
             // Late Move Reduction (LMR)
-            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() {
-                let r_depth = if i >= 5 && !is_endgame { 3 } else { 2 };
+            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() && !is_endgame {
+                let r_depth = if i >= 5 { 3 } else { 2 };
                 let red_score = self.minimax(depth - r_depth, alpha, beta);
-                if red_score > alpha {
+                if red_score > Some(alpha) {
                     // move is promising despite being late in the order, full search
                     self.minimax(depth-1, alpha, beta)
                 } else {
@@ -403,17 +482,22 @@ impl Engine {
             // pop move to go up the tre
             self.game.pop();
 
-            let is_better = if is_max { score > best_score } else { score < best_score };
+            match score {
+                None => { return None; },
+                _ => {}
+            }
+
+            let is_better = if is_max { score > Some(best_score) } else { score < Some(best_score) };
             // if it's near the root of the tree (the possible next move) save the best move
             if is_better || local_best_move.is_none() {
-                if depth == self.actual_depth || self.best_move.is_none() {
+                if depth == self.max_depth || self.best_move.is_none() {
                     self.best_move = Some(m.clone());
                 }
                 local_best_move = Some(*m);
             }
 
             if is_max {
-                best_score = i32::max(best_score, score);
+                best_score = i32::max(best_score, score.unwrap());
                 alpha = i32::max(alpha, best_score);
                 if best_score >= beta {
                     if !m.is_capture() && !self.game.current().is_check() {
@@ -425,7 +509,7 @@ impl Engine {
                     break;
                 }
             } else {
-                best_score = i32::min(best_score, score);
+                best_score = i32::min(best_score, score.unwrap());
                 beta = i32::min(beta, best_score);
                 if best_score <= alpha { break; }
             }
@@ -448,6 +532,6 @@ impl Engine {
             best_move: local_best_move,
         });
 
-        best_score
+        Some(best_score)
     }
 }

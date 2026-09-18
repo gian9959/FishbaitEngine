@@ -1,16 +1,16 @@
 mod engine;
 mod transition_table;
 mod constants;
-mod tests;
+
 use shakmaty::Color;
-use vampirc_uci::{parse_one, UciMessage};
+use vampirc_uci::{parse_one, UciMessage, UciTimeControl};
 use std::io::{self, BufRead, Write};
 use ::fishbait_engine::Fishbait;
 
 fn main() {
     let stdin = io::stdin();
     let mut fishbait = None;
-    let depth = 9;
+    let depth = 20;
 
     for line in stdin.lock().lines() {
         let msg = parse_one(&line.unwrap());
@@ -34,11 +34,11 @@ fn main() {
                         Color::Black
                     };
                     fishbait = Some(if startpos {
-                        Fishbait::new(color, depth)
+                        Fishbait::new(color)
                     } else if let Some(f) = fen {
-                        Fishbait::from_fen(&f.to_string(), color, 8).unwrap()
+                        Fishbait::from_fen(&f.to_string(), color).unwrap()
                     } else {
-                        Fishbait::new(color, depth)
+                        Fishbait::new(color)
                     });
                 }
 
@@ -49,16 +49,30 @@ fn main() {
                     }
                 }
             }
-            UciMessage::Go { .. } => {
-                if let Some(ref mut e) = fishbait {
-                    if let Some(result) = e.search() {
-                        let uci_move = shakmaty::uci::UciMove::from_move(
-                            result.best_move,
-                            shakmaty::CastlingMode::Standard
-                        );
-                        println!("bestmove {}", uci_move);
-                        io::stdout().flush().unwrap();
+            UciMessage::Go { time_control, .. } => {
+                let time_limit = match time_control {
+                    Some(UciTimeControl::MoveTime(duration)) => duration,
+                    Some(UciTimeControl::TimeLeft { white_time, black_time, .. }) => {
+                        let t = if fishbait.as_ref().unwrap().get_color() == Color::White {
+                            white_time
+                        } else {
+                            black_time
+                        };
+                        match t {
+                            Some(t) => t / 15,
+                            None => chrono::Duration::seconds(30),
+                        }
                     }
+                    _ => chrono::Duration::seconds(30),
+                };
+                if let Some(ref mut e) = fishbait {
+                    let result = e.search(time_limit.to_std().unwrap(), true);
+                    let uci_move = shakmaty::uci::UciMove::from_move(
+                        result.best_move,
+                        shakmaty::CastlingMode::Standard
+                    );
+                    println!("bestmove {}", uci_move);
+                    io::stdout().flush().unwrap();
                 }
             }
             UciMessage::Quit => break,
