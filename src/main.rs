@@ -2,15 +2,17 @@ mod engine;
 mod transition_table;
 mod constants;
 
+use std::env;
 use shakmaty::Color;
 use vampirc_uci::{parse_one, UciMessage, UciTimeControl};
 use std::io::{self, BufRead, Write};
+use polyglot_book_rs::PolyglotBook;
 use ::fishbait_engine::Fishbait;
 
 fn main() {
     let stdin = io::stdin();
     let mut fishbait = None;
-    let depth = 20;
+    let mut opening_book = None;
 
     for line in stdin.lock().lines() {
         let msg = parse_one(&line.unwrap());
@@ -27,18 +29,32 @@ fn main() {
             }
             UciMessage::Position { startpos, fen, moves } => {
                 if fishbait.is_none() || startpos {
-                    // create new engine
+
+                    // load opening book
+                    let mut book_path = env::current_exe().expect("Could not find executable path");
+                    book_path.pop();
+                    book_path.push("Perfect2023.bin");
+                    let book_path = book_path.to_string_lossy().into_owned();
+
+                    opening_book = match PolyglotBook::load(&book_path) {
+                        Ok(book) => Some(book),
+                        Err(e) => {
+                            eprintln!("Failed to load opening book '{}': {}", book_path, e);
+                            None
+                        }
+                    };
+
+                    // determine color
                     let color = if moves.len() % 2 == 0 {
                         Color::White
                     } else {
                         Color::Black
                     };
-                    fishbait = Some(if startpos {
-                        Fishbait::new(color)
-                    } else if let Some(f) = fen {
-                        Fishbait::from_fen(&f.to_string(), color).unwrap()
+                    // create new engine
+                    fishbait = Some(if let Some(f) = fen {
+                        Fishbait::from_fen(&f.to_string(), color, opening_book).unwrap()
                     } else {
-                        Fishbait::new(color)
+                        Fishbait::new(color, opening_book)
                     });
                 }
 

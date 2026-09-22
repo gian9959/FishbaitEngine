@@ -4,6 +4,7 @@ mod constants;
 
 use std::error::Error;
 use std::time::Duration;
+use polyglot_book_rs::PolyglotBook;
 use shakmaty::{Color, Move, Position, MoveList, Chess, PlayError};
 use shakmaty::{fen::Fen, CastlingMode};
 use shakmaty::uci::UciMove;
@@ -11,23 +12,26 @@ use engine::{Game, Engine, SearchResult};
 
 pub struct Fishbait {
     engine: Engine,
+    opening_book: Option<PolyglotBook>
 }
 
 impl Fishbait {
 
-    pub fn new(color: Color) -> Self {
+    pub fn new(color: Color, polyglot_book: Option<PolyglotBook>) -> Self {
         let game = Game::new();
         Fishbait {
             engine: Engine::new(game.clone(), color),
+            opening_book: polyglot_book
         }
     }
 
-    pub fn from_fen(fen: &str, color: Color) -> Result<Self, Box<dyn Error>> {
+    pub fn from_fen(fen: &str, color: Color, polyglot_book: Option<PolyglotBook>) -> Result<Self, Box<dyn Error>> {
         let fen: Fen = fen.parse()?;
         let pos = fen.into_position(CastlingMode::Standard)?;
         let game = Game::from_pos(pos);
         Ok(Fishbait {
             engine: Engine::new(game.clone(), color),
+            opening_book: polyglot_book
         })
     }
 
@@ -56,7 +60,7 @@ impl Fishbait {
 
     pub fn search(&mut self, max_time: Duration, print: bool) -> SearchResult {
         self.engine.set_timer(max_time);
-        self.engine.play(print)
+        self.engine.play(&self.opening_book, print)
     }
 
     pub fn legal_moves(&self) -> MoveList {

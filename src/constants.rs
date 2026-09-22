@@ -1,5 +1,9 @@
 use shakmaty::{Role, Color, Square, Move};
 
+pub const TABLE_SIZE: usize = 7_000_000;
+
+pub const INF: i32 = 100_000_000;
+
 pub const PAWN_TABLE_WHITE: [i32; 64] = [
     0,  0,  0,  0,  0,  0,  0,  0,
     5, 10, 10,-20,-20, 10, 10,  5,

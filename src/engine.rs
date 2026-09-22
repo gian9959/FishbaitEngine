@@ -2,10 +2,11 @@ use std::io;
 use std::io::Write;
 use std::time::{Duration, Instant};
 use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64};
-use crate::constants::{piece_value, piece_square_value, move_score};
+use rand;
+use polyglot_book_rs::PolyglotBook;
+use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, move_score};
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
-const TABLE_SIZE: usize = 7_000_000;
 
 #[derive(Clone)]
 pub struct Game {
@@ -138,7 +139,7 @@ impl Engine {
         }
         self.best_move = None;
         self.best_score = 0;
-        self.silent_history = [[0; 64]; 64];
+        //self.silent_history = [[0; 64]; 64];
     }
 
     pub fn set_color(&mut self, color: Color) {
@@ -197,7 +198,38 @@ impl Engine {
         pv
     }
 
-    pub fn play(&mut self, print: bool) -> SearchResult {
+    pub fn play(&mut self, opening_book: &Option<PolyglotBook>, print: bool) -> SearchResult {
+
+        // search opening book
+        if let Some(book) = opening_book {
+            let fen = shakmaty::fen::Fen::from_position(
+                self.game.current(),
+                EnPassantMode::Legal
+            ).to_string();
+
+            let moves = book.get_all_moves_from_fen(&fen);
+            if !moves.is_empty() {
+                // select random move from book
+                // probability based on "weight" of move in the book
+                let tot_weight = moves.iter().map(|m| m.weight).sum();
+                let mut choice = rand::random_range(0..tot_weight);
+
+                for entry in moves {
+                    if choice < entry.weight {
+                        if let Ok(mv) = entry.move_string.parse::<shakmaty::uci::UciMove>() {
+                            if let Ok(mv) = mv.to_move(self.game.current()) {
+                                self.game.push(mv).ok();
+                                let score = self.eval();
+                                self.game.pop();
+                                return SearchResult { best_move: mv, score: score };
+                            }
+                        }
+                    }
+                    choice -= entry.weight;
+                }
+            }
+        }
+
         let mut prev_res: Vec<SearchResult> = vec![];
 
         // start move timer
@@ -208,7 +240,7 @@ impl Engine {
 
             let score = if depth <= 2 {
                 // first two iterations have a "full" window
-                self.minimax(depth, i32::MIN, i32::MAX)
+                self.minimax(depth, -INF, INF)
             } else {
                 // use aspiration window on later iterations
                 let mut delta = 50;
@@ -274,7 +306,7 @@ impl Engine {
         let mut moves = moves;
         moves.sort_by_key(|m| {
             if Some(m) == h_move.as_ref() {
-                return i32::MIN;
+                return -INF;
             }
             if m.is_capture() {
                 return -move_score(m);
@@ -325,8 +357,8 @@ impl Engine {
             if entry.depth >= depth {
                 match entry.entry_type {
                     EntryType::Exact => return Some(entry.score),
-                    EntryType::LowerBound => alpha = i32::max(alpha, entry.score),
-                    EntryType::UpperBound => beta = i32::min(beta, entry.score),
+                    EntryType::LowerBound => alpha = alpha.max(entry.score),
+                    EntryType::UpperBound => beta = beta.min(entry.score),
                 }
                 if alpha >= beta {
                     return Some(entry.score);
@@ -347,7 +379,7 @@ impl Engine {
         // check if game ended
         if moves.is_empty() {
             return if self.game.current().is_checkmate() {
-                if is_max { Some(i32::MIN) } else { Some(i32::MAX) }
+                if is_max { Some(-INF) } else { Some(INF) }
             } else {
                 Some(0)
             };
@@ -445,8 +477,8 @@ impl Engine {
                 }
                 match entry.entry_type {
                     EntryType::Exact => return Some(entry.score),
-                    EntryType::LowerBound => alpha = i32::max(alpha, entry.score),
-                    EntryType::UpperBound => beta = i32::min(beta, entry.score),
+                    EntryType::LowerBound => alpha = alpha.max(entry.score),
+                    EntryType::UpperBound => beta = beta.min(entry.score),
                 }
                 if alpha >= beta {
                     return Some(entry.score);
@@ -473,7 +505,7 @@ impl Engine {
         // end condition by no other moves
         if moves.is_empty() {
             return if self.game.current().is_checkmate() {
-                if is_max { Some(i32::MIN) } else { Some(i32::MAX) }
+                if is_max { Some(-INF) } else { Some(INF) }
             } else {
                 Some(0)
             }
@@ -481,7 +513,7 @@ impl Engine {
 
         moves = self.order_moves(moves, h_move);
 
-        let mut best_score = if is_max { i32::MIN } else { i32::MAX };
+        let mut best_score = if is_max { -INF } else { INF };
         let mut local_best_move: Option<Move> = None;
         let original_alpha = alpha;
         let original_beta = beta;
@@ -526,8 +558,8 @@ impl Engine {
             }
 
             if is_max {
-                best_score = i32::max(best_score, score.unwrap());
-                alpha = i32::max(alpha, best_score);
+                best_score = best_score.max(score.unwrap());
+                alpha = alpha.max(best_score);
                 if best_score >= beta {
                     if !m.is_capture() && !self.game.current().is_check() {
                         // save "silent" move in history
@@ -538,8 +570,8 @@ impl Engine {
                     break;
                 }
             } else {
-                best_score = i32::min(best_score, score.unwrap());
-                beta = i32::min(beta, best_score);
+                best_score = best_score.min(score.unwrap());
+                beta = beta.min(best_score);
                 if best_score <= alpha { break; }
             }
         }
