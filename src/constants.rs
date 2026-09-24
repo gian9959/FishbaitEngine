@@ -1,4 +1,5 @@
-use shakmaty::{Role, Color, Square, Move};
+use std::arch::x86_64::_mm256_mask_scalef_ph;
+use shakmaty::{Role, Color, Square, Move, Board};
 
 pub const BOOK: &[u8] = include_bytes!("Perfect2023.bin");
 pub const TABLE_SIZE: usize = 7_000_000;
@@ -98,11 +99,11 @@ pub const fn piece_value(role: Role) -> i32 {
     }
 }
 
-pub fn piece_square_value(role: Role, color: Color, square: Square, endgame: bool) -> i32 {
+pub fn piece_square_value(role: Role, color: Color, square: Square, board: &Board, endgame: bool) -> i32 {
     let idx = square as usize;
     match (role, color) {
-        (Role::Pawn,   Color::White) => PAWN_TABLE_WHITE[idx],
-        (Role::Pawn,   Color::Black) => PAWN_TABLE_BLACK[idx],
+        (Role::Pawn,   Color::White) => PAWN_TABLE_WHITE[idx] + passed_pawn_bonus(color, square, board),
+        (Role::Pawn,   Color::Black) => PAWN_TABLE_BLACK[idx] + passed_pawn_bonus(color, square, board),
         (Role::Knight, _)            => KNIGHT_TABLE[idx],
         (Role::Bishop, Color::White) => BISHOP_TABLE_WHITE[idx],
         (Role::Bishop, Color::Black) => BISHOP_TABLE_BLACK[idx],
@@ -112,6 +113,45 @@ pub fn piece_square_value(role: Role, color: Color, square: Square, endgame: boo
         (Role::King,   Color::White) => if endgame { KING_ENDGAME_TABLE_WHITE[idx] } else { KING_TABLE_WHITE[idx] },
         (Role::King,   Color::Black) => if endgame { KING_ENDGAME_TABLE_BLACK[idx] } else { KING_TABLE_BLACK[idx] },
     }
+}
+
+fn passed_pawn_bonus(color: Color, square: Square, board: &Board) -> i32 {
+    let their_pawns = board.by_color(!color).intersect(board.by_role(Role::Pawn));
+    let mut score = 0;
+    let mut passed = true;
+
+    for p in their_pawns {
+        if square.file() == p.file() {
+            passed = false;
+            break;
+        } else if (square.file() - p.file()).abs() <= 1 {
+            match color {
+                Color::White => {
+                    if square.rank() < p.rank() {
+                        passed = false;
+                        break;
+                    }
+                },
+                Color::Black => {
+                    if square.rank() > p.rank() {
+                        passed = false;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if passed {
+        match color {
+            Color::White => {
+                score += square.rank() as i32 * 10;
+            },
+            Color::Black => {
+                score += (7 - square.rank() as i32) * 10;
+            },
+        }
+    }
+    score
 }
 
 pub fn move_score(mv: &Move) -> i32 {

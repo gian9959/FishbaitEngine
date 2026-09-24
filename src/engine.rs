@@ -95,7 +95,6 @@ pub struct Engine {
     pub game: Game,
     color: Color,
     max_depth: i32,
-    quiescence_depth: i32,
     max_time: Duration,
 
     best_move: Option<Move>,
@@ -117,7 +116,6 @@ impl Engine {
             game: g,
             color: c,
             max_depth: 20,
-            quiescence_depth: 5,
             max_time: Duration::from_secs(30),
 
             best_move: None,
@@ -149,10 +147,6 @@ impl Engine {
 
     pub fn set_max_depth(&mut self, max_depth: i32) {
         self.max_depth = max_depth;
-    }
-
-    pub fn set_quiescence_depth(&mut self, depth: i32) {
-        self.quiescence_depth = depth;
     }
 
     pub fn set_timer(&mut self, max_time: Duration) {
@@ -323,7 +317,7 @@ impl Engine {
             for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen, Role::King] {
                 let mut pieces = board.by_color(color).intersect(board.by_role(role));
                 while let Some(square) = pieces.pop_front() {
-                    let value = piece_value(role) + piece_square_value(role, color, square, endgame);
+                    let value = piece_value(role) + piece_square_value(role, color, square, board, endgame);
                     if color == self.color {
                         score += value;
                     } else {
