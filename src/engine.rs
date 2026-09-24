@@ -3,8 +3,9 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64};
 use rand;
-use polyglot_book_rs::PolyglotBook;
+
 use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, move_score};
+use crate::opening_book::OpeningBook;
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
 
@@ -198,16 +199,13 @@ impl Engine {
         pv
     }
 
-    pub fn play(&mut self, opening_book: &Option<PolyglotBook>, print: bool) -> SearchResult {
+    pub fn play(&mut self, opening_book: &Option<OpeningBook>, print: bool) -> SearchResult {
 
         // search opening book
         if let Some(book) = opening_book {
-            let fen = shakmaty::fen::Fen::from_position(
-                self.game.current(),
-                EnPassantMode::Legal
-            ).to_string();
+            let hash = u64::from(self.game.current().zobrist_hash::<Zobrist64>(EnPassantMode::Legal));
+            let moves = book.get_moves(hash);
 
-            let moves = book.get_all_moves_from_fen(&fen);
             if !moves.is_empty() {
                 // select random move from book
                 // probability based on "weight" of move in the book
@@ -216,13 +214,11 @@ impl Engine {
 
                 for entry in moves {
                     if choice < entry.weight {
-                        if let Ok(mv) = entry.move_string.parse::<shakmaty::uci::UciMove>() {
-                            if let Ok(mv) = mv.to_move(self.game.current()) {
-                                self.game.push(mv).ok();
-                                let score = self.eval();
-                                self.game.pop();
-                                return SearchResult { best_move: mv, score: score };
-                            }
+                        if let Some(mv) = entry.decode_move(self.game.current()) {
+                            self.game.push(mv).ok();
+                            let score = self.eval();
+                            self.game.pop();
+                            return SearchResult { best_move: mv, score: score };
                         }
                     }
                     choice -= entry.weight;

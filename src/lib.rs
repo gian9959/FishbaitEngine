@@ -1,23 +1,24 @@
 mod engine;
 mod transition_table;
+mod opening_book;
 mod constants;
 
 use std::error::Error;
 use std::time::Duration;
-use polyglot_book_rs::PolyglotBook;
 use shakmaty::{Color, Move, Position, MoveList, Chess, PlayError};
 use shakmaty::{fen::Fen, CastlingMode};
 use shakmaty::uci::UciMove;
 use engine::{Game, Engine, SearchResult};
+pub use crate::opening_book::OpeningBook;
 
 pub struct Fishbait {
     engine: Engine,
-    opening_book: Option<PolyglotBook>
+    opening_book: Option<OpeningBook>
 }
 
 impl Fishbait {
 
-    pub fn new(color: Color, polyglot_book: Option<PolyglotBook>) -> Self {
+    pub fn new(color: Color, polyglot_book: Option<OpeningBook>) -> Self {
         let game = Game::new();
         Fishbait {
             engine: Engine::new(game.clone(), color),
@@ -25,7 +26,7 @@ impl Fishbait {
         }
     }
 
-    pub fn from_fen(fen: &str, color: Color, polyglot_book: Option<PolyglotBook>) -> Result<Self, Box<dyn Error>> {
+    pub fn from_fen(fen: &str, color: Color, polyglot_book: Option<OpeningBook>) -> Result<Self, Box<dyn Error>> {
         let fen: Fen = fen.parse()?;
         let pos = fen.into_position(CastlingMode::Standard)?;
         let game = Game::from_pos(pos);

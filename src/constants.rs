@@ -1,5 +1,6 @@
 use shakmaty::{Role, Color, Square, Move};
 
+pub const BOOK: &[u8] = include_bytes!("Perfect2023.bin");
 pub const TABLE_SIZE: usize = 7_000_000;
 
 pub const INF: i32 = 100_000_000;

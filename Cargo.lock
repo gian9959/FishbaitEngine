@@ -6,8 +6,8 @@ version = 4
 name = "FishbaitEngine"
 version = "0.1.0"
 dependencies = [
+ "byteorder",
  "chrono",
- "polyglot-book-rs",
  "rand",
  "shakmaty",
  "vampirc-uci",
@@ -54,6 +54,12 @@ name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cc"
@@ -273,12 +279,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "polyglot-book-rs"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2800f836be0e33f035784fb1dba3e44204fc78098e232a7d67ea1a63db3c79d"
 
 [[package]]
 name = "proc-macro2"
