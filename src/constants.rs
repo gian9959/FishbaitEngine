@@ -1,4 +1,3 @@
-use std::arch::x86_64::_mm256_mask_scalef_ph;
 use shakmaty::{Role, Color, Square, Move, Board};
 
 pub const BOOK: &[u8] = include_bytes!("Perfect2023.bin");
