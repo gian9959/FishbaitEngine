@@ -1,10 +1,10 @@
 use std::io;
 use std::io::Write;
 use std::time::{Duration, Instant};
-use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64};
+use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64, CastlingMode, Setup, PositionError};
 use rand;
-
-use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, move_score};
+use shakmaty::fen::Fen;
+use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, move_score, NMP, LMR, LMR_T2, LMR_T1};
 use crate::opening_book::OpeningBook;
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
@@ -83,6 +83,17 @@ impl Game {
             total += piece_value(role) * pieces as i32;
         }
         total <= 3000
+    }
+
+    pub fn null_move(&mut self) -> Result<(), PositionError<Chess>> {
+        let fen = Fen::from_position(self.current(), EnPassantMode::Legal);
+        let mut setup: Setup = Setup::from(fen);
+        setup.swap_turn();
+        let null_pos: Chess = setup.position(CastlingMode::Standard)?;
+        let hash = null_pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
+        self.history.push(null_pos);
+        self.hashes.push(hash);
+        Ok(())
     }
 }
 #[derive(Clone)]
@@ -169,6 +180,30 @@ impl Engine {
         self.start_timer.elapsed() >= self.max_time
     }
 
+    fn print_info(&self, mut depth: i32) {
+        let mut pv_str = shakmaty::uci::UciMove::from_move(self.best_move.unwrap(), shakmaty::CastlingMode::Standard).to_string();
+        if depth > 0 {
+            let pv = self.extract_pv(depth);
+            pv_str = pv.iter()
+                .map(|m| shakmaty::uci::UciMove::from_move(*m, shakmaty::CastlingMode::Standard).to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+        } else {
+            // move from opening book
+            depth = 1;
+        }
+
+
+        println!("info depth {} score cp {} nodes {} time {} pv {}",
+                 depth,
+                 self.best_score,
+                 self.iterations + self.q_iterations,
+                 self.start_timer.elapsed().as_millis(),
+                 pv_str
+        );
+        io::stdout().flush().unwrap();
+    }
+
     fn extract_pv(&self, depth: i32) -> Vec<Move> {
         let mut pv = Vec::new();
         let mut game = self.game.clone();
@@ -193,7 +228,7 @@ impl Engine {
         pv
     }
 
-    pub fn play(&mut self, opening_book: &Option<OpeningBook>, print: bool) -> SearchResult {
+    pub fn play(&mut self, opening_book: &Option<OpeningBook>, print_info: bool) -> SearchResult {
 
         // search opening book
         if let Some(book) = opening_book {
@@ -209,10 +244,14 @@ impl Engine {
                 for entry in moves {
                     if choice < entry.weight {
                         if let Some(mv) = entry.decode_move(self.game.current()) {
+                            self.best_move = Some(mv);
                             self.game.push(mv).ok();
-                            let score = self.eval();
+                            self.best_score = self.eval();
                             self.game.pop();
-                            return SearchResult { best_move: mv, score: score };
+                            if print_info {
+                                self.print_info(0);
+                            }
+                            return SearchResult { best_move: self.best_move.unwrap(), score: self.best_score };
                         }
                     }
                     choice -= entry.weight;
@@ -230,7 +269,7 @@ impl Engine {
 
             let score = if depth <= 2 {
                 // first two iterations have a "full" window
-                self.minimax(depth, -INF, INF)
+                self.minimax(depth, -INF, INF, false)
             } else {
                 // use aspiration window on later iterations
                 let mut delta = 50;
@@ -238,7 +277,7 @@ impl Engine {
                 let mut beta = prev_res[depth as usize - 2].score + delta;
 
                 loop {
-                    let score = self.minimax(depth, alpha, beta);
+                    let score = self.minimax(depth, alpha, beta, false);
 
                     match score {
                         None => { return prev_res[depth as usize - 2].clone() }
@@ -269,21 +308,8 @@ impl Engine {
                 self.best_move = entry.best_move;
             }
 
-            if let Some(bm) = self.best_move && print {
-                let pv = self.extract_pv(depth);
-                let pv_str = pv.iter()
-                    .map(|m| shakmaty::uci::UciMove::from_move(*m, shakmaty::CastlingMode::Standard).to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-
-                println!("info depth {} score cp {} nodes {} time {} pv {}",
-                    depth,
-                    self.best_score,
-                    self.iterations + self.q_iterations,
-                    self.start_timer.elapsed().as_millis(),
-                    pv_str
-                );
-                io::stdout().flush().unwrap();
+            if print_info {
+                self.print_info(depth);
             }
         }
         SearchResult {
@@ -317,7 +343,7 @@ impl Engine {
             for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen, Role::King] {
                 let mut pieces = board.by_color(color).intersect(board.by_role(role));
                 while let Some(square) = pieces.pop_front() {
-                    let value = piece_value(role) + piece_square_value(role, color, square, board, endgame);
+                    let value = piece_square_value(role, color, square, board, endgame);
                     if color == self.color {
                         score += value;
                     } else {
@@ -446,7 +472,7 @@ impl Engine {
         Some(best_score)
     }
 
-    pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32) -> Option<i32> {
+    pub fn minimax(&mut self, depth: i32, mut alpha: i32, mut beta: i32, null_move: bool) -> Option<i32> {
 
         if self.is_timeout() {
             return None;
@@ -501,13 +527,31 @@ impl Engine {
             }
         }
 
+        let is_endgame = self.game.is_endgame();
+
+        // null move pruning
+        if !null_move && depth >= NMP && !self.game.current().is_check() && !is_endgame {
+            if !self.game.null_move().is_err() {
+
+                // reduced search
+                let null_score = self.minimax(depth - NMP, alpha, beta, true);
+
+                self.game.pop();
+
+                if is_max && null_score >= Some(beta) {
+                    return Some(beta);
+                } else if !is_max && null_score <= Some(alpha) {
+                    return Some(alpha);
+                }
+            }
+        }
+
         moves = self.order_moves(moves, h_move);
 
         let mut best_score = if is_max { -INF } else { INF };
         let mut local_best_move: Option<Move> = None;
         let original_alpha = alpha;
         let original_beta = beta;
-        let is_endgame = self.game.is_endgame();
 
         for (i, m) in moves.iter().enumerate() {
             if self.is_timeout() { return None }
@@ -516,18 +560,18 @@ impl Engine {
             if self.game.push(*m).is_err() { continue; }
 
             // Late Move Reduction (LMR)
-            let score = if i >= 2 && depth >= 3 && !self.game.current().is_check() && !m.is_capture() && !is_endgame {
-                let r_depth = if i >= 5 { 3 } else { 2 };
-                let red_score = self.minimax(depth - r_depth, alpha, beta);
+            let score = if i >= LMR_T1 as usize && depth >= LMR && !self.game.current().is_check() && !m.is_capture() && !is_endgame {
+                let r_depth = if i >= LMR_T2 as usize { LMR } else { LMR-1 };
+                let red_score = self.minimax(depth - r_depth, alpha, beta, false);
                 if red_score > Some(alpha) {
                     // move is promising despite being late in the order, full search
-                    self.minimax(depth-1, alpha, beta)
+                    self.minimax(depth-1, alpha, beta, false)
                 } else {
                     red_score
                 }
             } else {
                 // normal search
-                self.minimax(depth-1, alpha, beta)
+                self.minimax(depth-1, alpha, beta, false)
             };
 
             // pop move to go up the tre
