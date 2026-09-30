@@ -8,9 +8,10 @@ Implements:
   - Alpha-Beta Pruning
   - Iterative Deepening
   - Aspiration window
-  - Late Move Reduction
   - Quiescence Search
   - Transposition Table with Zobrist hashing
+  - Late Move Reduction
+  - Null move pruning
   - Move ordering with:
     - MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
     - Silent move history
