@@ -131,7 +131,6 @@ pub const fn piece_value(role: Role) -> i32 {
 
 fn passed_pawn_bonus(color: Color, square: Square, board: &Board) -> i32 {
     let their_pawns = board.by_color(!color).intersect(board.by_role(Role::Pawn));
-    let mut score = 0;
     let mut passed = true;
 
     for p in their_pawns {
@@ -157,16 +156,15 @@ fn passed_pawn_bonus(color: Color, square: Square, board: &Board) -> i32 {
         }
     }
     if passed {
-        match color {
-            Color::White => {
-                score += square.rank() as i32 * 10;
-            },
-            Color::Black => {
-                score += (7 - square.rank() as i32) * 10;
-            },
+        let mut rank = square.rank() as i32;
+        if color == Color::Black {
+            rank = 7 - rank;
+        }
+        if rank >= 2 {
+            return 20 * (1 << (rank - 2));
         }
     }
-    score
+    0
 }
 
 fn doubled_pawn_penalty(color: Color, square: Square, board: &Board) -> i32 {

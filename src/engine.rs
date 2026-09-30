@@ -402,7 +402,7 @@ impl Engine {
         }
 
         let mut best_score = self.eval();
-        let mut active_moves = moves;
+        let mut active_moves = self.order_moves(moves, h_move);
 
         // score of position with no capture if not in check
         if !self.game.current().is_check(){
@@ -414,10 +414,11 @@ impl Engine {
                 beta = beta.min(best_score);
             }
             // if not in check explore only capture moves
-            active_moves= active_moves.into_iter()
+            active_moves = active_moves.into_iter()
                 .filter(|m| m.is_capture())
                 .collect();
-            active_moves = self.order_moves(active_moves, h_move);
+            // active moves should already be ordered
+            // active_moves = self.order_moves(active_moves, h_move);
         }
 
         let original_alpha = alpha;
@@ -528,9 +529,10 @@ impl Engine {
         }
 
         let is_endgame = self.game.is_endgame();
+        //let has_captures = moves.iter().any(|m| m.is_capture());
 
-        // null move pruning
-        if !null_move && depth >= NMP && !self.game.current().is_check() && !is_endgame {
+        // Null Move Pruning (NMP)
+        if !null_move && depth >= NMP && !self.game.current().is_check() && !is_endgame /* && !has_captures */ {
             if !self.game.null_move().is_err() {
 
                 // reduced search
@@ -540,8 +542,6 @@ impl Engine {
 
                 if is_max && null_score >= Some(beta) {
                     return Some(beta);
-                } else if !is_max && null_score <= Some(alpha) {
-                    return Some(alpha);
                 }
             }
         }
