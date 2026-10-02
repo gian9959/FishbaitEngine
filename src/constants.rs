@@ -161,7 +161,7 @@ fn passed_pawn_bonus(color: Color, square: Square, board: &Board) -> i32 {
             rank = 7 - rank;
         }
         if rank >= 2 {
-            return 20 * (1 << (rank - 2));
+            return 10 * (1 << (rank - 2));
         }
     }
     0

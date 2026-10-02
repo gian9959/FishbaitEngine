@@ -1,6 +1,6 @@
 # Fishbait Chess Engine
 
-A simple Rust chess engine based on the [shakmaty](https://github.com/niklasf/shakmaty) chess library.
+A Rust chess engine based on the [shakmaty](https://github.com/niklasf/shakmaty) chess library.
 
 Implements:
 

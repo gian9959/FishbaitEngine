@@ -529,10 +529,10 @@ impl Engine {
         }
 
         let is_endgame = self.game.is_endgame();
-        //let has_captures = moves.iter().any(|m| m.is_capture());
+        let has_captures = moves.iter().any(|m| m.is_capture());
 
         // Null Move Pruning (NMP)
-        if !null_move && depth >= NMP && !self.game.current().is_check() && !is_endgame /* && !has_captures */ {
+        if !null_move && depth >= NMP && !self.game.current().is_check() && !is_endgame && !has_captures {
             if !self.game.null_move().is_err() {
 
                 // reduced search
