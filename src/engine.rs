@@ -1,10 +1,10 @@
 use std::io;
 use std::io::Write;
 use std::time::{Duration, Instant};
-use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64, CastlingMode, Setup, PositionError};
+use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64, CastlingMode, Setup, PositionError, Square};
 use rand;
 use shakmaty::fen::Fen;
-use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, move_score, NMP, LMR, LMR_T2, LMR_T1};
+use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, NMP, LMR, LMR_T2, LMR_T1};
 use crate::opening_book::OpeningBook;
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
@@ -318,20 +318,25 @@ impl Engine {
         }
     }
 
-    fn order_moves(&mut self, moves: MoveList, h_move: Option<Move>) -> MoveList {
-        let mut moves = moves;
+    fn order_moves(&mut self, mut moves: MoveList, h_move: Option<Move>) -> MoveList {
         moves.sort_by_key(|m| {
             if Some(m) == h_move.as_ref() {
                 return -INF;
             }
             if m.is_capture() {
-                return -move_score(m);
+                let captured = m.capture().unwrap();
+                let attacker = m.role();
+                return -self.mvv_lva_eval(captured, attacker);
             }
             let from = m.from().unwrap() as usize;
             let to = m.to() as usize;
             -self.silent_history[from][to]
         });
         moves
+    }
+
+    fn mvv_lva_eval(&mut self, victim: Role, role: Role) -> i32 {
+        piece_value(victim) * 10 - piece_value(role)
     }
 
     fn eval(&self) -> i32 {
@@ -414,11 +419,7 @@ impl Engine {
                 beta = beta.min(best_score);
             }
             // if not in check explore only capture moves
-            active_moves = active_moves.into_iter()
-                .filter(|m| m.is_capture())
-                .collect();
-            // active moves should already be ordered
-            // active_moves = self.order_moves(active_moves, h_move);
+            active_moves = active_moves.into_iter().filter(|m| m.is_capture()).collect();
         }
 
         let original_alpha = alpha;

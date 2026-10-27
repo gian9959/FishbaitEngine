@@ -1,4 +1,4 @@
-use shakmaty::{Role, Color, Square, Move, Board};
+use shakmaty::{Role, Color, Square, Board};
 
 pub const BOOK: &[u8] = include_bytes!("Perfect2023.bin");
 pub const TABLE_SIZE: usize = 10_000_000;
@@ -194,17 +194,6 @@ fn doubled_pawn_penalty(color: Color, square: Square, board: &Board) -> i32 {
         score -= 30;
     }
     score
-}
-
-pub fn move_score(mv: &Move) -> i32 {
-    match mv {
-        Move::Normal { capture: Some(victim), role, .. } => {
-            piece_value(*victim) * 10 - piece_value(*role)
-        },
-        Move::Castle { .. } => 20,
-        Move::EnPassant { .. } => 10,
-        _ => 0,
-    }
 }
 
 pub const fn reverse(table: [i32; 64]) -> [i32; 64] {

@@ -24,7 +24,7 @@ impl OpeningBook {
             cursor.read_u16::<BigEndian>(),
         ) {
             cursor.read_u32::<BigEndian>().ok();
-            entries.push(BookEntry {hash: hash, mv: mv, weight: weight});
+            entries.push(BookEntry { hash: hash, mv: mv, weight: weight });
         }
         OpeningBook { entries: entries }
     }
@@ -35,7 +35,7 @@ impl OpeningBook {
 }
 
 impl BookEntry {
-    pub(crate) fn decode_move(&self, pos: &Chess) -> Option<Move> {
+    pub fn decode_move(&self, pos: &Chess) -> Option<Move> {
         let to_file = ((self.mv >> 0) & 7) as u8;
         let to_rank = ((self.mv >> 3) & 7) as u8;
         let from_file = ((self.mv >> 6) & 7) as u8;
