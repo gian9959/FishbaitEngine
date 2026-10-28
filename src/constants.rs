@@ -196,6 +196,23 @@ fn doubled_pawn_penalty(color: Color, square: Square, board: &Board) -> i32 {
     score
 }
 
+pub fn king_pawn_distance(color: Color, board: &Board) -> i32 {
+    let mut score = 0;
+
+    let my_pawns = board.by_color(color).intersect(board.by_role(Role::Pawn));
+    let their_king = board.king_of(!color).unwrap();
+
+    for sq in my_pawns {
+        if passed_pawn_bonus(color, sq, board) > 0 {
+            // Chebyshev distance
+            let file_dist = (their_king.file() as i32 - sq.file() as i32).abs();
+            let rank_dist = (their_king.rank() as i32 - sq.rank() as i32).abs();
+            score += file_dist.max(rank_dist) * 15;
+        }
+    }
+    score
+}
+
 pub const fn reverse(table: [i32; 64]) -> [i32; 64] {
     let mut result = [0; 64];
     let mut i = 0;

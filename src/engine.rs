@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64, CastlingMode, Setup, PositionError, Square};
 use rand;
 use shakmaty::fen::Fen;
-use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, NMP, LMR, LMR_T2, LMR_T1};
+use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, NMP, LMR, LMR_T2, LMR_T1, king_pawn_distance};
 use crate::opening_book::OpeningBook;
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
@@ -345,16 +345,20 @@ impl Engine {
         let mut score = 0;
 
         for color in [Color::White, Color::Black] {
+            let mut value = 0;
             for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen, Role::King] {
                 let mut pieces = board.by_color(color).intersect(board.by_role(role));
                 while let Some(square) = pieces.pop_front() {
-                    let value = piece_square_value(role, color, square, board, endgame);
-                    if color == self.color {
-                        score += value;
-                    } else {
-                        score -= value;
-                    }
+                    value += piece_square_value(role, color, square, board, endgame);
                 }
+            }
+            if endgame {
+                value += king_pawn_distance(color, board);
+            }
+            if color == self.color {
+                score += value;
+            } else {
+                score -= value;
             }
         }
         score
