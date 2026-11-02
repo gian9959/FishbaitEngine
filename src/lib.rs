@@ -18,18 +18,20 @@ pub struct Fishbait {
 
 impl Fishbait {
 
-    pub fn new(color: Color, polyglot_book: Option<OpeningBook>) -> Self {
-        let game = Game::new();
+    pub fn new(color: Color, max_moves: Option<i32>, polyglot_book: Option<OpeningBook>) -> Self {
+        let mut game = Game::new();
+        game.set_max_moves(max_moves);
         Fishbait {
             engine: Engine::new(game.clone(), color),
             opening_book: polyglot_book
         }
     }
 
-    pub fn from_fen(fen: &str, color: Color, polyglot_book: Option<OpeningBook>) -> Result<Self, Box<dyn Error>> {
+    pub fn from_fen(fen: &str, color: Color, max_moves: Option<i32>, polyglot_book: Option<OpeningBook>) -> Result<Self, Box<dyn Error>> {
         let fen: Fen = fen.parse()?;
         let pos = fen.into_position(CastlingMode::Standard)?;
-        let game = Game::from_pos(pos);
+        let mut game = Game::from_pos(pos);
+        game.set_max_moves(max_moves);
         Ok(Fishbait {
             engine: Engine::new(game.clone(), color),
             opening_book: polyglot_book

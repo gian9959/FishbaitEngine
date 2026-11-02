@@ -1,4 +1,4 @@
-use shakmaty::{Role, Color, Square, Board};
+use shakmaty::{Role, Color, Square, Board, Rank};
 
 pub const BOOK: &[u8] = include_bytes!("Perfect2023.bin");
 pub const TABLE_SIZE: usize = 10_000_000;
@@ -15,6 +15,12 @@ pub const LMR_T2: i32 = 5;
 
 // depth reduction value of NMP
 pub const NMP: i32 = 3;
+
+// constant used for calculating phase of the game
+pub(crate) const PHASE_MAX: i32 = 2 * (2 * piece_value(Role::Knight)
+    + 2 * piece_value(Role::Bishop)
+    + 2 * piece_value(Role::Rook)
+    + piece_value(Role::Queen));
 
 pub const PAWN_TABLE_WHITE: [i32; 64] = [
     0,  0,  0,  0,  0,  0,  0,  0,
@@ -98,7 +104,7 @@ pub const KING_ENDGAME_TABLE_WHITE: [i32; 64] = [
 ];
 pub const KING_ENDGAME_TABLE_BLACK: [i32; 64] = reverse(KING_ENDGAME_TABLE_WHITE);
 
-pub fn piece_square_value(role: Role, color: Color, square: Square, board: &Board, endgame: bool) -> i32 {
+pub fn piece_square_value(role: Role, color: Color, square: Square, board: &Board, phase: i32) -> i32 {
     let p_value = piece_value(role);
 
     let idx = square as usize;
@@ -111,8 +117,8 @@ pub fn piece_square_value(role: Role, color: Color, square: Square, board: &Boar
         (Role::Rook,   Color::White) => ROOK_TABLE_WHITE[idx],
         (Role::Rook,   Color::Black) => ROOK_TABLE_BLACK[idx],
         (Role::Queen,  _)            => QUEEN_TABLE[idx],
-        (Role::King,   Color::White) => if endgame { KING_ENDGAME_TABLE_WHITE[idx] } else { KING_TABLE_WHITE[idx] },
-        (Role::King,   Color::Black) => if endgame { KING_ENDGAME_TABLE_BLACK[idx] } else { KING_TABLE_BLACK[idx] },
+        (Role::King,   Color::White) => (KING_TABLE_WHITE[idx] * phase + KING_ENDGAME_TABLE_WHITE[idx] * (PHASE_MAX - phase)) / PHASE_MAX,
+        (Role::King,   Color::Black) => (KING_TABLE_BLACK[idx] * phase + KING_ENDGAME_TABLE_BLACK[idx] * (PHASE_MAX - phase)) / PHASE_MAX,
     };
 
     p_value + s_value
@@ -131,40 +137,45 @@ pub const fn piece_value(role: Role) -> i32 {
 
 fn passed_pawn_bonus(color: Color, square: Square, board: &Board) -> i32 {
     let their_pawns = board.by_color(!color).intersect(board.by_role(Role::Pawn));
-    let mut passed = true;
 
     for p in their_pawns {
-        let file_diff = square.file() as i32 - p.file() as i32;
-        if file_diff == 0 {
-            passed = false;
-            break;
-        } else if file_diff.abs() <= 1 {
-            match color {
-                Color::White => {
-                    if square.rank() < p.rank() {
-                        passed = false;
-                        break;
-                    }
-                },
-                Color::Black => {
-                    if square.rank() > p.rank() {
-                        passed = false;
-                        break;
-                    }
-                }
+        if (square.file() as i32 - p.file() as i32).abs() <= 1 {
+            let ahead = match color {
+                Color::White => p.rank() > square.rank(),
+                Color::Black => p.rank() < square.rank(),
+            };
+            if ahead {
+                return 0;
             }
         }
     }
-    if passed {
-        let mut rank = square.rank() as i32;
-        if color == Color::Black {
-            rank = 7 - rank;
-        }
-        if rank >= 2 {
-            return 10 * (1 << (rank - 2));
+
+    let advancement = match color {
+        Color::White => square.rank() as i32,
+        Color::Black => 7 - square.rank() as i32,
+    };
+    if advancement < 2 {
+        return 0;
+    }
+
+    let mut bonus = 10 * (1 << (advancement - 2));
+
+    let step = if color == Color::White { 8 } else { -8 };
+    if let Some(front) = square.offset(step) {
+        if board.piece_at(front).is_some() {
+            bonus /= 2;
         }
     }
-    0
+
+    if advancement >= 4 {
+        let promo_rank = if color == Color::White { Rank::Eighth } else { Rank::First };
+        let promo = Square::from_coords(square.file(), promo_rank);
+        if !board.attacks_to(promo, !color, board.occupied()).is_empty() {
+            bonus /= 2;
+        }
+    }
+
+    bonus
 }
 
 fn doubled_pawn_penalty(color: Color, square: Square, board: &Board) -> i32 {
@@ -196,7 +207,7 @@ fn doubled_pawn_penalty(color: Color, square: Square, board: &Board) -> i32 {
     score
 }
 
-pub fn king_pawn_distance(color: Color, board: &Board) -> i32 {
+pub fn king_pawn_distance(color: Color, board: &Board, phase: i32) -> i32 {
     let mut score = 0;
 
     let my_pawns = board.by_color(color).intersect(board.by_role(Role::Pawn));
@@ -210,7 +221,15 @@ pub fn king_pawn_distance(color: Color, board: &Board) -> i32 {
             score += file_dist.max(rank_dist) * 15;
         }
     }
-    score
+    score * ((PHASE_MAX - phase) / PHASE_MAX)
+}
+
+pub fn phase(board: &Board) -> i32 {
+    let mut npm = 0;
+    for role in [Role::Knight, Role::Bishop, Role::Rook, Role::Queen] {
+        npm += piece_value(role) * board.by_role(role).count() as i32;
+    }
+    npm.min(PHASE_MAX)
 }
 
 pub const fn reverse(table: [i32; 64]) -> [i32; 64] {

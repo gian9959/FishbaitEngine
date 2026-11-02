@@ -1,10 +1,10 @@
 use std::io;
 use std::io::Write;
 use std::time::{Duration, Instant};
-use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64, CastlingMode, Setup, PositionError, Square};
+use shakmaty::{Chess, Position, Move, Color, MoveList, Role, PlayError, EnPassantMode, zobrist::Zobrist64, CastlingMode, Setup, PositionError};
 use rand;
 use shakmaty::fen::Fen;
-use crate::constants::{TABLE_SIZE, INF, piece_value, piece_square_value, NMP, LMR, LMR_T2, LMR_T1, king_pawn_distance};
+use crate::constants::{INF, TABLE_SIZE, PHASE_MAX, NMP, LMR, LMR_T2, LMR_T1, piece_value, piece_square_value, king_pawn_distance, phase};
 use crate::opening_book::OpeningBook;
 use crate::transition_table::{TranspositionTable, EntryType, TTEntry};
 
@@ -75,14 +75,12 @@ impl Game {
         }
     }
 
+    pub fn get_phase(&self) -> i32 {
+        phase(self.current().board())
+    }
+
     pub fn is_endgame(&self) -> bool {
-        let board = self.current().board();
-        let mut total = 0;
-        for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen] {
-            let pieces = board.by_role(role).count();
-            total += piece_value(role) * pieces as i32;
-        }
-        total <= 3000
+        if self.get_phase() <= (PHASE_MAX/3) { true } else { false }
     }
 
     pub fn null_move(&mut self) -> Result<(), PositionError<Chess>> {
@@ -341,7 +339,7 @@ impl Engine {
 
     fn eval(&self) -> i32 {
         let board = self.game.current().board();
-        let endgame = self.game.is_endgame();
+        let phase = self.game.get_phase();
         let mut score = 0;
 
         for color in [Color::White, Color::Black] {
@@ -349,12 +347,10 @@ impl Engine {
             for role in [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen, Role::King] {
                 let mut pieces = board.by_color(color).intersect(board.by_role(role));
                 while let Some(square) = pieces.pop_front() {
-                    value += piece_square_value(role, color, square, board, endgame);
+                    value += piece_square_value(role, color, square, board, phase);
                 }
             }
-            if endgame {
-                value += king_pawn_distance(color, board);
-            }
+            value += king_pawn_distance(color, board, phase);
             if color == self.color {
                 score += value;
             } else {

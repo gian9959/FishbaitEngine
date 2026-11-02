@@ -34,9 +34,9 @@ fn main() {
                     };
                     // create new engine
                     fishbait = Some(if let Some(f) = fen {
-                        Fishbait::from_fen(&f.to_string(), color, opening_book).unwrap()
+                        Fishbait::from_fen(&f.to_string(), color, None, opening_book).unwrap()
                     } else {
-                        Fishbait::new(color, opening_book)
+                        Fishbait::new(color, None, opening_book)
                     });
                 }
 
